@@ -73,7 +73,7 @@ function KpiCard({
 }) {
   return (
     <CardShell icon={icon} accent={accent}>
-      <p className={cn("font-mono-nums text-3xl font-bold leading-none", ACCENT[accent].text)}>
+      <p className={cn("font-mono-nums text-2xl font-bold leading-none sm:text-3xl", ACCENT[accent].text)}>
         {value}
       </p>
       <p className="mt-2 text-sm font-medium text-foreground/80">{label}</p>
@@ -146,7 +146,7 @@ function PnlCard({
         </div>
       }
     >
-      <p className={cn("font-mono-nums text-3xl font-bold leading-none", ACCENT[accent].text)}>
+      <p className={cn("font-mono-nums text-2xl font-bold leading-none sm:text-3xl", ACCENT[accent].text)}>
         {formatCurrency(value, { sign: true, whole: true })}
       </p>
       <p className="mt-2 text-sm font-medium text-foreground/80">Unrealised P&L</p>
