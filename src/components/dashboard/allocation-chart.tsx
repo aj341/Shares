@@ -1,13 +1,7 @@
 "use client";
 
 import * as React from "react";
-import {
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { AllocationSnapshot } from "@/lib/types";
@@ -26,45 +20,6 @@ const PALETTE = [
 ];
 const CASH_COLOR = "hsl(215 16% 55%)";
 
-type LegendDatum = {
-  name: string;
-  value: number;
-  marketValue: number;
-  color: string;
-};
-
-/** Custom tooltip with explicit popover colours so text is always readable. */
-function AllocTooltip({
-  active,
-  payload,
-  mode,
-}: {
-  active?: boolean;
-  payload?: Array<{ payload: LegendDatum }>;
-  mode: AllocMode;
-}) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  return (
-    <div className="rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md">
-      <span className="flex items-center gap-1.5">
-        <span
-          className="inline-block h-2 w-2 rounded-full"
-          style={{ backgroundColor: d.color }}
-        />
-        <span className="font-mono-nums font-semibold text-popover-foreground">
-          {d.name}
-        </span>
-        <span className="font-mono-nums text-muted-foreground">
-          {mode === "pct"
-            ? `${d.value}%`
-            : formatCurrency(d.marketValue, { compact: true })}
-        </span>
-      </span>
-    </div>
-  );
-}
-
 export function AllocationDonut({
   title,
   data,
@@ -73,6 +28,7 @@ export function AllocationDonut({
   data: AllocationSnapshot[];
 }) {
   const [mode, setMode] = React.useState<AllocMode>("pct");
+  const [activeIdx, setActiveIdx] = React.useState<number | null>(null);
 
   // Assign a stable colour per non-cash ticker, grey for cash.
   let paletteIndex = 0;
@@ -86,6 +42,7 @@ export function AllocationDonut({
     }));
 
   const total = items.reduce((s, d) => s + d.marketValue, 0);
+  const active = activeIdx !== null ? items[activeIdx] : null;
 
   if (items.length === 0) {
     return (
@@ -139,33 +96,47 @@ export function AllocationDonut({
                 paddingAngle={2}
                 strokeWidth={0}
                 isAnimationActive={false}
+                onMouseEnter={(_, index) => setActiveIdx(index)}
+                onMouseLeave={() => setActiveIdx(null)}
               >
-                {items.map((entry) => (
-                  <Cell key={entry.name} fill={entry.color} />
+                {items.map((entry, i) => (
+                  <Cell
+                    key={entry.name}
+                    fill={entry.color}
+                    opacity={activeIdx === null || activeIdx === i ? 1 : 0.45}
+                  />
                 ))}
               </Pie>
-              <Tooltip
-                cursor={false}
-                content={({ active, payload }) => (
-                  <AllocTooltip
-                    active={active}
-                    payload={
-                      payload as unknown as Array<{ payload: LegendDatum }> | undefined
-                    }
-                    mode={mode}
-                  />
-                )}
-              />
             </PieChart>
           </ResponsiveContainer>
-          {/* Center total */}
+          {/* Center readout: hovered slice, else portfolio total. No floating
+              tooltip — avoids overlapping this label. */}
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Total
-            </span>
-            <span className="font-mono-nums text-lg font-bold">
-              {formatCurrency(total, { compact: true })}
-            </span>
+            {active ? (
+              <>
+                <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: active.color }}
+                  />
+                  {active.name}
+                </span>
+                <span className="font-mono-nums text-lg font-bold">
+                  {mode === "pct"
+                    ? `${active.value}%`
+                    : formatCurrency(active.marketValue, { compact: true })}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Total
+                </span>
+                <span className="font-mono-nums text-lg font-bold">
+                  {formatCurrency(total, { compact: true })}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
