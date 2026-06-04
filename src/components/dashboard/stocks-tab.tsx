@@ -325,6 +325,32 @@ function buildSlides(h: Holding, tech?: StockTechnicals) {
         </div>
       ),
     },
+    {
+      title: "Latest Announcement",
+      content: h.announcements[0] ? (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={
+                h.announcements[0].impact === "positive"
+                  ? "positive"
+                  : h.announcements[0].impact === "negative"
+                    ? "negative"
+                    : "neutral"
+              }
+              className="text-[10px]"
+            >
+              Impact {h.announcements[0].impactScore > 0 ? `+${h.announcements[0].impactScore}` : h.announcements[0].impactScore}
+            </Badge>
+            <span className="text-xs text-muted-foreground">{h.announcements[0].date}</span>
+          </div>
+          <p className="text-sm font-medium">{h.announcements[0].title}</p>
+          <p className="line-clamp-3 text-xs text-muted-foreground">{h.announcements[0].summary}</p>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">No recent announcements.</p>
+      ),
+    },
   ];
 }
 

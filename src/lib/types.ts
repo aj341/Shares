@@ -398,3 +398,70 @@ export type WatchlistResponse = {
   asOf: string;
   source: "mboum" | "none";
 };
+
+// ---------------------------------------------------------------------------
+// Article Impact Analyzer
+// ---------------------------------------------------------------------------
+
+export type ImpactScore = -3 | -2 | -1 | 0 | 1 | 2 | 3;
+
+export type ArticleImpactAnalysis = {
+  url: string;
+  canonicalUrl?: string;
+  source?: string;
+  headline: string;
+  publishDate?: string;
+  author?: string;
+  detectedTickers: string[];
+  selectedTicker: string;
+  summaryBullets: string[];
+  executiveSentiment: {
+    hasExecComments: boolean;
+    tone: ExecTone;
+    keyPoints: string[];
+  };
+  storyVsFinancials: {
+    financialsSupportStory: "yes" | "partly" | "no" | "unclear";
+    notes: string;
+  };
+  outsideResearch: {
+    thesisChange:
+      | "confirming"
+      | "incremental"
+      | "material"
+      | "overhyped"
+      | "underappreciated";
+    supportingPoints: string[];
+    conflictingPoints: string[];
+  };
+  impactAssessment: {
+    verdict: "positive" | "neutral" | "negative" | "mixed";
+    impactScore: ImpactScore;
+    timeHorizon: "intraday" | "short_term" | "medium_term" | "long_term";
+    expectedMarketSensitivity: "low" | "medium" | "high";
+    confidence: "low" | "medium" | "high";
+    actionHint: "buy" | "hold" | "trim" | "sell" | "watch";
+    rationale: string;
+  };
+  followUp: string[];
+  /** "llm" when synthesized by Claude, "heuristic" when rule-based fallback. */
+  engine: "llm" | "heuristic";
+  createdAt: string;
+};
+
+export type ExtractedArticle = {
+  url: string;
+  canonicalUrl?: string;
+  source?: string;
+  headline: string;
+  author?: string;
+  publishDate?: string;
+  body: string;
+};
+
+export type TickerDetection = {
+  primary: string | null;
+  detected: string[];
+  /** ticker -> mention count, for ranking/secondary display */
+  counts: Record<string, number>;
+};

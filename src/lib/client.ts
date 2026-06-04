@@ -1,5 +1,6 @@
 import type {
   ApiError,
+  ArticleImpactAnalysis,
   DashboardResponse,
   PerformanceResponse,
   PortfolioTransaction,
@@ -102,4 +103,8 @@ export function postCashAdjustment(payload: {
   notes?: string;
 }) {
   return postJson("/api/portfolio/cash-adjustments", payload);
+}
+
+export function analyzeArticle(url: string, ticker?: string): Promise<ArticleImpactAnalysis> {
+  return postJson<ArticleImpactAnalysis>("/api/article-impact/analyze", { url, ticker });
 }

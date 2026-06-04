@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LiveClock } from "@/components/live-clock";
 import { KpiCards } from "@/components/dashboard/kpi-cards";
+import { HoldingsTable } from "@/components/dashboard/holdings-table";
 import { StockDetailSheet } from "@/components/dashboard/stock-detail-sheet";
 import { AllocationChart } from "@/components/dashboard/allocation-chart";
 import { SafetyRating } from "@/components/dashboard/safety-rating";
@@ -26,6 +27,7 @@ import { PerformanceChart } from "@/components/dashboard/performance-chart";
 import { SectorAllocation } from "@/components/dashboard/sector-allocation";
 import { StocksTab } from "@/components/dashboard/stocks-tab";
 import { WatchlistTab } from "@/components/dashboard/watchlist-tab";
+import { ArticleAnalyzer } from "@/components/dashboard/article-analyzer";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
 import { AnnouncementsFeed } from "@/components/dashboard/announcements-feed";
 import { DisagreementScorecard } from "@/components/dashboard/disagreement-scorecard";
@@ -269,6 +271,9 @@ function ReadyView({
           <TabsTrigger value="watchlist" className="rounded-full px-4">
             Watchlist
           </TabsTrigger>
+          <TabsTrigger value="analyzer" className="rounded-full px-4">
+            Analyzer
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -290,6 +295,19 @@ function ReadyView({
               onSelect={onSelect}
             />
           </div>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Holdings</CardTitle>
+            </CardHeader>
+            <CardContent className="px-2 sm:px-6">
+              <HoldingsTable
+                holdings={portfolio.holdings}
+                onSelect={onSelect}
+                onAction={onAction}
+              />
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="stocks">
@@ -342,6 +360,10 @@ function ReadyView({
 
         <TabsContent value="watchlist">
           <WatchlistTab data={watch.data} loading={watch.loading} />
+        </TabsContent>
+
+        <TabsContent value="analyzer">
+          <ArticleAnalyzer />
         </TabsContent>
       </Tabs>
     </div>
