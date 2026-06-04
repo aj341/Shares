@@ -3,7 +3,9 @@ import type {
   DashboardResponse,
   PerformanceResponse,
   PortfolioTransaction,
+  StocksResponse,
   TradeType,
+  WatchlistResponse,
 } from "@/lib/types";
 
 /** Client-side typed fetchers for the dashboard API routes. */
@@ -29,6 +31,14 @@ export function fetchDashboard(): Promise<DashboardResponse> {
 
 export function fetchPerformance(): Promise<PerformanceResponse> {
   return getJson<PerformanceResponse>("/api/performance");
+}
+
+export function fetchStocks(): Promise<StocksResponse> {
+  return getJson<StocksResponse>("/api/stocks");
+}
+
+export function fetchWatchlist(): Promise<WatchlistResponse> {
+  return getJson<WatchlistResponse>("/api/watchlist");
 }
 
 export function fetchTransactions(): Promise<{ transactions: PortfolioTransaction[] }> {

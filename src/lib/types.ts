@@ -325,3 +325,76 @@ export type DerivedPosition = {
 export type PnlPeriod = "daily" | "weekly" | "monthly" | "total";
 
 export type PnlByPeriod = Record<PnlPeriod, { value: number; pct: number }>;
+
+// ---------------------------------------------------------------------------
+// Per-stock technicals (Stocks tab) — computed from Mboum history + modules
+// ---------------------------------------------------------------------------
+
+export type StockTechnicals = {
+  ticker: string;
+  rsi: number | null;
+  ma20: number | null;
+  ma50: number | null;
+  priceVsMa20: "above" | "below" | null;
+  priceVsMa50: "above" | "below" | null;
+  week52High: number | null;
+  week52Low: number | null;
+  peRatio: number | null;
+  targetMean: number | null;
+  targetUpsidePct: number | null;
+  bullishPct: number | null;
+  analystConsensus: "bullish" | "neutral" | "bearish" | "mixed" | null;
+  /** Recent close prices for the sparkline (ascending). */
+  sparkline: number[];
+};
+
+export type StocksResponse = {
+  byTicker: Record<string, StockTechnicals>;
+  asOf: string;
+  source: "mboum" | "none";
+};
+
+// ---------------------------------------------------------------------------
+// Watchlist (suggested additions)
+// ---------------------------------------------------------------------------
+
+export type WatchlistBucket = "best_entry" | "neutral" | "overbought";
+
+export type AnalystAction = {
+  firm: string;
+  action: string; // e.g. "raised target to $275"
+  date: string;
+};
+
+export type WatchlistItem = {
+  ticker: string;
+  companyName: string;
+  sector: string;
+  subSectors: string[];
+  price: number | null;
+  upsidePct: number | null;
+  rsi: number | null;
+  targetMean: number | null;
+  peRatio: number | null;
+  bullishPct: number | null;
+  analystRating: string | null;
+  week52High: number | null;
+  week52Low: number | null;
+  bucket: WatchlistBucket;
+  signalLabel: string;
+  // Editorial (curated, sourced framing — not financial advice)
+  whyItFits: string;
+  bullCase: string;
+  keyRisk: string;
+  technicalSignal: string;
+  recentAnalystActions: AnalystAction[];
+};
+
+export type WatchlistResponse = {
+  items: WatchlistItem[];
+  suggestionsCount: number;
+  avgUpsidePct: number | null;
+  bestEntry: string[];
+  asOf: string;
+  source: "mboum" | "none";
+};

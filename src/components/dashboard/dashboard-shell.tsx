@@ -17,13 +17,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LiveClock } from "@/components/live-clock";
 import { KpiCards } from "@/components/dashboard/kpi-cards";
-import { HoldingsTable } from "@/components/dashboard/holdings-table";
 import { StockDetailSheet } from "@/components/dashboard/stock-detail-sheet";
-import { AllocationChart, AllocationDonut } from "@/components/dashboard/allocation-chart";
+import { AllocationChart } from "@/components/dashboard/allocation-chart";
 import { SafetyRating } from "@/components/dashboard/safety-rating";
 import { PortfolioPulse } from "@/components/dashboard/portfolio-pulse";
 import { SignalsList } from "@/components/dashboard/signals-list";
 import { PerformanceChart } from "@/components/dashboard/performance-chart";
+import { SectorAllocation } from "@/components/dashboard/sector-allocation";
+import { StocksTab } from "@/components/dashboard/stocks-tab";
 import {
   RedistributionSummaryCards,
   RedistributionTable,
@@ -34,9 +35,13 @@ import {
   type DialogState,
   type DialogType,
 } from "@/components/dashboard/portfolio-dialogs";
-import { fetchDashboard, fetchPerformance } from "@/lib/client";
+import { fetchDashboard, fetchPerformance, fetchStocks } from "@/lib/client";
 import { computeInsights } from "@/lib/insights";
-import type { DashboardResponse, PerformanceResponse } from "@/lib/types";
+import type {
+  DashboardResponse,
+  PerformanceResponse,
+  StocksResponse,
+} from "@/lib/types";
 
 type LoadState =
   | { status: "loading" }
@@ -44,10 +49,12 @@ type LoadState =
   | { status: "ready"; data: DashboardResponse };
 
 type PerfState = { loading: boolean; data: PerformanceResponse | null };
+type StocksState = { loading: boolean; data: StocksResponse | null };
 
 export function DashboardShell() {
   const [state, setState] = React.useState<LoadState>({ status: "loading" });
   const [perf, setPerf] = React.useState<PerfState>({ loading: true, data: null });
+  const [stocks, setStocks] = React.useState<StocksState>({ loading: true, data: null });
   const [selected, setSelected] = React.useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   const [dialog, setDialog] = React.useState<DialogState>(null);
@@ -74,10 +81,22 @@ export function DashboardShell() {
     }
   }, []);
 
+  // Per-stock technicals load independently too (Mboum-backed).
+  const loadStocks = React.useCallback(async () => {
+    setStocks({ loading: true, data: null });
+    try {
+      const data = await fetchStocks();
+      setStocks({ loading: false, data });
+    } catch {
+      setStocks({ loading: false, data: null });
+    }
+  }, []);
+
   React.useEffect(() => {
     void load();
     void loadPerf();
-  }, [load, loadPerf]);
+    void loadStocks();
+  }, [load, loadPerf, loadStocks]);
 
   const handleSelect = (ticker: string) => {
     setSelected(ticker);
@@ -90,7 +109,8 @@ export function DashboardShell() {
   const refreshAll = React.useCallback(() => {
     void load();
     void loadPerf();
-  }, [load, loadPerf]);
+    void loadStocks();
+  }, [load, loadPerf, loadStocks]);
 
   const selectedHolding =
     state.status === "ready"
@@ -114,6 +134,7 @@ export function DashboardShell() {
           <ReadyView
             data={state.data}
             perf={perf}
+            stocks={stocks}
             onSelect={handleSelect}
             onAction={openDialog}
           />
@@ -183,11 +204,13 @@ function Header({
 function ReadyView({
   data,
   perf,
+  stocks,
   onSelect,
   onAction,
 }: {
   data: DashboardResponse;
   perf: PerfState;
+  stocks: StocksState;
   onSelect: (ticker: string) => void;
   onAction: (type: DialogType, ticker?: string) => void;
 }) {
@@ -215,6 +238,9 @@ function ReadyView({
           <TabsTrigger value="overview" className="rounded-full px-4">
             Overview
           </TabsTrigger>
+          <TabsTrigger value="stocks" className="rounded-full px-4">
+            Stocks
+          </TabsTrigger>
           <TabsTrigger value="analysis" className="rounded-full px-4">
             Analysis
           </TabsTrigger>
@@ -232,26 +258,23 @@ function ReadyView({
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <AllocationDonut title="Allocation" data={redistribution.before} />
+            <SectorAllocation holdings={portfolio.holdings} />
             <SignalsList
               holdings={portfolio.holdings}
               disagreement={disagreement}
               onSelect={onSelect}
             />
           </div>
+        </TabsContent>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Holdings</CardTitle>
-            </CardHeader>
-            <CardContent className="px-2 sm:px-6">
-              <HoldingsTable
-                holdings={portfolio.holdings}
-                onSelect={onSelect}
-                onAction={onAction}
-              />
-            </CardContent>
-          </Card>
+        <TabsContent value="stocks">
+          <StocksTab
+            holdings={portfolio.holdings}
+            technicals={stocks.data?.byTicker ?? {}}
+            loading={stocks.loading}
+            onSelect={onSelect}
+            onAction={(t, ticker) => onAction(t, ticker)}
+          />
         </TabsContent>
 
         <TabsContent value="analysis" className="space-y-6">

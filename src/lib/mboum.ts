@@ -220,6 +220,22 @@ export type AnalystRatings = {
   consensus: "bullish" | "neutral" | "bearish" | "mixed";
 };
 
+export type KeyStats = {
+  peRatio: number | null;
+  week52High: number | null;
+  week52Low: number | null;
+};
+
+export async function getKeyStats(symbol: string): Promise<KeyStats | null> {
+  const b = await getModule<Record<string, RawNum>>(symbol, "summary-detail");
+  if (!b) return null;
+  return {
+    peRatio: num(b.trailingPE),
+    week52High: num(b.fiftyTwoWeekHigh),
+    week52Low: num(b.fiftyTwoWeekLow),
+  };
+}
+
 export async function getAnalystRatings(symbol: string): Promise<AnalystRatings | null> {
   type Trend = {
     period: string;
