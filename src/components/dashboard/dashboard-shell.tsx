@@ -25,22 +25,27 @@ import { SignalsList } from "@/components/dashboard/signals-list";
 import { PerformanceChart } from "@/components/dashboard/performance-chart";
 import { SectorAllocation } from "@/components/dashboard/sector-allocation";
 import { StocksTab } from "@/components/dashboard/stocks-tab";
-import {
-  RedistributionSummaryCards,
-  RedistributionTable,
-} from "@/components/dashboard/redistribution-table";
+import { WatchlistTab } from "@/components/dashboard/watchlist-tab";
+import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
+import { AnnouncementsFeed } from "@/components/dashboard/announcements-feed";
 import { DisagreementScorecard } from "@/components/dashboard/disagreement-scorecard";
 import {
   PortfolioDialogs,
   type DialogState,
   type DialogType,
 } from "@/components/dashboard/portfolio-dialogs";
-import { fetchDashboard, fetchPerformance, fetchStocks } from "@/lib/client";
+import {
+  fetchDashboard,
+  fetchPerformance,
+  fetchStocks,
+  fetchWatchlist,
+} from "@/lib/client";
 import { computeInsights } from "@/lib/insights";
 import type {
   DashboardResponse,
   PerformanceResponse,
   StocksResponse,
+  WatchlistResponse,
 } from "@/lib/types";
 
 type LoadState =
@@ -50,11 +55,13 @@ type LoadState =
 
 type PerfState = { loading: boolean; data: PerformanceResponse | null };
 type StocksState = { loading: boolean; data: StocksResponse | null };
+type WatchState = { loading: boolean; data: WatchlistResponse | null };
 
 export function DashboardShell() {
   const [state, setState] = React.useState<LoadState>({ status: "loading" });
   const [perf, setPerf] = React.useState<PerfState>({ loading: true, data: null });
   const [stocks, setStocks] = React.useState<StocksState>({ loading: true, data: null });
+  const [watch, setWatch] = React.useState<WatchState>({ loading: true, data: null });
   const [selected, setSelected] = React.useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   const [dialog, setDialog] = React.useState<DialogState>(null);
@@ -92,11 +99,22 @@ export function DashboardShell() {
     }
   }, []);
 
+  const loadWatch = React.useCallback(async () => {
+    setWatch({ loading: true, data: null });
+    try {
+      const data = await fetchWatchlist();
+      setWatch({ loading: false, data });
+    } catch {
+      setWatch({ loading: false, data: null });
+    }
+  }, []);
+
   React.useEffect(() => {
     void load();
     void loadPerf();
     void loadStocks();
-  }, [load, loadPerf, loadStocks]);
+    void loadWatch();
+  }, [load, loadPerf, loadStocks, loadWatch]);
 
   const handleSelect = (ticker: string) => {
     setSelected(ticker);
@@ -110,7 +128,8 @@ export function DashboardShell() {
     void load();
     void loadPerf();
     void loadStocks();
-  }, [load, loadPerf, loadStocks]);
+    void loadWatch();
+  }, [load, loadPerf, loadStocks, loadWatch]);
 
   const selectedHolding =
     state.status === "ready"
@@ -135,6 +154,7 @@ export function DashboardShell() {
             data={state.data}
             perf={perf}
             stocks={stocks}
+            watch={watch}
             onSelect={handleSelect}
             onAction={openDialog}
           />
@@ -205,12 +225,14 @@ function ReadyView({
   data,
   perf,
   stocks,
+  watch,
   onSelect,
   onAction,
 }: {
   data: DashboardResponse;
   perf: PerfState;
   stocks: StocksState;
+  watch: WatchState;
   onSelect: (ticker: string) => void;
   onAction: (type: DialogType, ticker?: string) => void;
 }) {
@@ -243,6 +265,9 @@ function ReadyView({
           </TabsTrigger>
           <TabsTrigger value="analysis" className="rounded-full px-4">
             Analysis
+          </TabsTrigger>
+          <TabsTrigger value="watchlist" className="rounded-full px-4">
+            Watchlist
           </TabsTrigger>
         </TabsList>
 
@@ -278,24 +303,10 @@ function ReadyView({
         </TabsContent>
 
         <TabsContent value="analysis" className="space-y-6">
-          <section className="space-y-3">
-            <SectionTitle
-              title="Recommended trades"
-              subtitle="Generated from scores, verdicts, the 30% cap and the 5% cash buffer."
-            />
-            <Card>
-              <CardContent className="px-2 pt-6 sm:px-6">
-                <RedistributionTable
-                  recommendations={redistribution.recommendations}
-                />
-              </CardContent>
-            </Card>
-          </section>
-
-          <section className="space-y-3">
-            <SectionTitle title="Redistribution summary" />
-            <RedistributionSummaryCards summary={redistribution.summary} />
-          </section>
+          <RebalancingCards
+            redistribution={redistribution}
+            holdings={portfolio.holdings}
+          />
 
           <section className="space-y-3">
             <SectionTitle
@@ -319,6 +330,18 @@ function ReadyView({
               </CardContent>
             </Card>
           </section>
+
+          <section className="space-y-3">
+            <SectionTitle
+              title="Announcements"
+              subtitle="Recent company news across the book."
+            />
+            <AnnouncementsFeed holdings={portfolio.holdings} />
+          </section>
+        </TabsContent>
+
+        <TabsContent value="watchlist">
+          <WatchlistTab data={watch.data} loading={watch.loading} />
         </TabsContent>
       </Tabs>
     </div>

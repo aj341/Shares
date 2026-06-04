@@ -236,6 +236,36 @@ export async function getKeyStats(symbol: string): Promise<KeyStats | null> {
   };
 }
 
+export type UpgradeDowngrade = { firm: string; action: string; date: string };
+
+/** Real recent analyst rating changes (firm + grade move). Empty on failure. */
+export async function getUpgradeDowngrade(symbol: string): Promise<UpgradeDowngrade[]> {
+  type Row = {
+    epochGradeDate?: number;
+    firm?: string;
+    toGrade?: string;
+    fromGrade?: string;
+    action?: string;
+  };
+  const b = await getModule<{ history?: Row[] }>(symbol, "upgrade-downgrade-history");
+  const rows = b?.history ?? [];
+  return rows
+    .slice(0, 4)
+    .map((r) => {
+      const date = r.epochGradeDate
+        ? new Date(r.epochGradeDate * 1000).toLocaleDateString("en-AU", {
+            month: "short",
+            year: "numeric",
+          })
+        : "";
+      const verb =
+        r.action === "up" ? "upgraded" : r.action === "down" ? "downgraded" : "reiterated";
+      const grade = r.toGrade ? ` to ${r.toGrade}` : "";
+      return { firm: r.firm ?? "Analyst", action: `${verb}${grade}`, date };
+    })
+    .filter((r) => r.firm);
+}
+
 export async function getAnalystRatings(symbol: string): Promise<AnalystRatings | null> {
   type Trend = {
     period: string;
