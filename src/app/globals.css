@@ -1,0 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Premium "trading desk" theme.
+ * Dark is the default: a deep navy-black canvas with vivid, color-coded
+ * accents (cyan / green / red / amber / violet) and bold tabular numerals.
+ */
+@layer base {
+  :root {
+    --background: 210 24% 98%;
+    --foreground: 222 32% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 32% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 32% 12%;
+
+    --primary: 199 89% 48%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 16% 93%;
+    --secondary-foreground: 222 32% 18%;
+
+    --muted: 210 16% 94%;
+    --muted-foreground: 215 16% 42%;
+
+    --accent: 210 16% 92%;
+    --accent-foreground: 222 32% 18%;
+
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 199 89% 48%;
+
+    /* Brand + status palette */
+    --brand: 199 89% 46%;
+    --brand-foreground: 0 0% 100%;
+    --brand-muted: 199 90% 92%;
+
+    --violet: 258 70% 56%;
+    --violet-muted: 258 80% 95%;
+
+    --positive: 152 55% 38%;
+    --positive-foreground: 152 60% 98%;
+    --positive-muted: 152 50% 92%;
+
+    --negative: 4 72% 50%;
+    --negative-foreground: 4 60% 98%;
+    --negative-muted: 4 70% 95%;
+
+    --warning: 35 88% 45%;
+    --warning-foreground: 35 80% 98%;
+    --warning-muted: 38 90% 92%;
+
+    --radius: 0.875rem;
+  }
+
+  .dark {
+    --background: 215 26% 7%;
+    --foreground: 210 30% 94%;
+
+    --card: 216 24% 10%;
+    --card-foreground: 210 30% 94%;
+
+    --popover: 216 26% 11%;
+    --popover-foreground: 210 30% 94%;
+
+    --primary: 199 89% 58%;
+    --primary-foreground: 215 40% 8%;
+
+    --secondary: 216 22% 16%;
+    --secondary-foreground: 210 30% 94%;
+
+    --muted: 216 20% 15%;
+    --muted-foreground: 215 16% 60%;
+
+    --accent: 216 22% 18%;
+    --accent-foreground: 210 30% 94%;
+
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 216 20% 18%;
+    --input: 216 20% 20%;
+    --ring: 199 89% 58%;
+
+    --brand: 199 90% 60%;
+    --brand-foreground: 215 40% 8%;
+    --brand-muted: 199 80% 16%;
+
+    --violet: 258 85% 72%;
+    --violet-muted: 258 45% 22%;
+
+    --positive: 152 62% 52%;
+    --positive-foreground: 152 30% 10%;
+    --positive-muted: 152 45% 16%;
+
+    --negative: 2 80% 66%;
+    --negative-foreground: 2 30% 10%;
+    --negative-muted: 2 55% 20%;
+
+    --warning: 38 92% 60%;
+    --warning-foreground: 38 40% 10%;
+    --warning-muted: 38 60% 18%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Subtle ambient glow behind the app on dark mode. */
+  .dark body {
+    background-image:
+      radial-gradient(60rem 40rem at 12% -10%, hsl(199 89% 30% / 0.12), transparent 60%),
+      radial-gradient(50rem 36rem at 100% 0%, hsl(258 70% 40% / 0.1), transparent 55%);
+    background-attachment: fixed;
+  }
+}
+
+@layer utilities {
+  .font-mono-nums {
+    font-family: var(--font-mono), "JetBrains Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+}
