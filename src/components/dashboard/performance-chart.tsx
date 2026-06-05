@@ -168,15 +168,6 @@ export function PerformanceChart({
                       isAnimationActive={false}
                     />
                   ))}
-                  <Line
-                    type="monotone"
-                    dataKey="Portfolio"
-                    stroke="hsl(var(--foreground))"
-                    strokeWidth={3}
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -256,7 +247,6 @@ function ModeToggle({
 function Legend({ tickers }: { tickers: string[] }) {
   return (
     <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-      <LegendItem label="Portfolio" color="hsl(var(--foreground))" bold />
       {tickers.map((t, i) => (
         <LegendItem key={t} label={t} color={PALETTE[i % PALETTE.length]} />
       ))}
