@@ -1,6 +1,8 @@
 import type {
   ApiError,
   ArticleImpactAnalysis,
+  AssistantResponse,
+  ChatMessage,
   DailyBrief,
   DashboardResponse,
   PerformanceResponse,
@@ -47,6 +49,18 @@ export function fetchWatchlist(): Promise<WatchlistResponse> {
 
 export function fetchBrief(): Promise<DailyBrief> {
   return getJson<DailyBrief>("/api/brief");
+}
+
+export async function askAssistant(
+  messages: ChatMessage[]
+): Promise<AssistantResponse> {
+  const res = await fetch("/api/assistant", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+  if (!res.ok) throw new Error(`assistant failed (${res.status})`);
+  return (await res.json()) as AssistantResponse;
 }
 
 export function fetchAlerts(): Promise<{ alerts: PortfolioAlert[] }> {

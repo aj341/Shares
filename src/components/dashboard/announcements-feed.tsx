@@ -19,6 +19,8 @@ const TYPE_LABELS: Record<Announcement["type"], string> = {
   other: "Other",
 };
 
+const COLLAPSED_COUNT = 3;
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
@@ -27,9 +29,27 @@ function formatDate(iso: string): string {
 }
 
 export function AnnouncementsFeed({ holdings }: { holdings: Holding[] }) {
-  const items: FeedItem[] = holdings
-    .flatMap((h) => h.announcements.map((a) => ({ ...a, ticker: h.ticker })))
-    .sort((a, b) => (a.date < b.date ? 1 : -1));
+  const items = React.useMemo<FeedItem[]>(
+    () =>
+      holdings
+        .flatMap((h) => h.announcements.map((a) => ({ ...a, ticker: h.ticker })))
+        .sort((a, b) => (a.date < b.date ? 1 : -1)),
+    [holdings]
+  );
+
+  const tickers = React.useMemo(
+    () => [...new Set(items.map((i) => i.ticker))].sort(),
+    [items]
+  );
+
+  const [filter, setFilter] = React.useState<string>("all");
+  const [showAll, setShowAll] = React.useState(false);
+
+  // Reset the collapse when the filter changes.
+  const selectFilter = (t: string) => {
+    setFilter(t);
+    setShowAll(false);
+  };
 
   if (items.length === 0) {
     return (
@@ -41,12 +61,63 @@ export function AnnouncementsFeed({ holdings }: { holdings: Holding[] }) {
     );
   }
 
+  const filtered = filter === "all" ? items : items.filter((i) => i.ticker === filter);
+  const visible = showAll ? filtered : filtered.slice(0, COLLAPSED_COUNT);
+  const hidden = filtered.length - visible.length;
+
   return (
-    <div className="space-y-2">
-      {items.map((a, i) => (
-        <FeedRow key={`${a.ticker}-${a.date}-${i}`} item={a} />
-      ))}
+    <div className="space-y-3">
+      {/* Stock filter */}
+      <div className="flex flex-wrap gap-1.5">
+        <FilterChip label="All" active={filter === "all"} onClick={() => selectFilter("all")} />
+        {tickers.map((t) => (
+          <FilterChip key={t} label={t} active={filter === t} onClick={() => selectFilter(t)} />
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        {visible.map((a, i) => (
+          <FeedRow key={`${a.ticker}-${a.date}-${i}`} item={a} />
+        ))}
+      </div>
+
+      {filtered.length > COLLAPSED_COUNT && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="flex w-full items-center justify-center gap-1 rounded-lg border border-border py-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          {showAll ? "Show less" : `Show all ${filtered.length} announcements`}
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showAll && "rotate-180")} />
+        </button>
+      )}
     </div>
+  );
+}
+
+function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "rounded-full px-2.5 py-0.5 text-[11px] font-medium font-mono-nums transition-colors",
+        active
+          ? "bg-primary text-primary-foreground"
+          : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -76,7 +147,13 @@ function FeedRow({ item: a }: { item: FeedItem }) {
             <p className="mt-1 flex items-start gap-1.5 text-sm font-medium">
               {a.title}
               {a.url && (
-                <a href={a.url} target="_blank" rel="noopener noreferrer" className="mt-0.5 text-muted-foreground hover:text-foreground">
+                <a
+                  href={a.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-0.5 text-muted-foreground hover:text-foreground"
+                  title="Open source article"
+                >
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               )}
@@ -84,16 +161,29 @@ function FeedRow({ item: a }: { item: FeedItem }) {
             <p className={cn("mt-0.5 text-sm text-muted-foreground", isLong && !open && "line-clamp-2")}>
               {a.summary}
             </p>
-            {isLong && (
-              <button
-                type="button"
-                onClick={() => setOpen((v) => !v)}
-                className="mt-1 inline-flex items-center gap-0.5 text-xs font-medium [color:hsl(var(--brand))] hover:underline"
-              >
-                {open ? "Show less" : "Read full announcement"}
-                <ChevronDown className={cn("h-3 w-3 transition-transform", open && "rotate-180")} />
-              </button>
-            )}
+            <div className="mt-1 flex items-center gap-3">
+              {isLong && (
+                <button
+                  type="button"
+                  onClick={() => setOpen((v) => !v)}
+                  className="inline-flex items-center gap-0.5 text-xs font-medium [color:hsl(var(--brand))] hover:underline"
+                >
+                  {open ? "Show less" : "Show more"}
+                  <ChevronDown className={cn("h-3 w-3 transition-transform", open && "rotate-180")} />
+                </button>
+              )}
+              {a.url && (
+                <a
+                  href={a.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-medium [color:hsl(var(--brand))] hover:underline"
+                >
+                  Read full article
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
           </div>
         </div>
       </CardContent>

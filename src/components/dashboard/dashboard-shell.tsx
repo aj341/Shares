@@ -20,6 +20,7 @@ import { KpiCards } from "@/components/dashboard/kpi-cards";
 import { HoldingsTable } from "@/components/dashboard/holdings-table";
 import { CashBalances } from "@/components/dashboard/cash-balances";
 import { DailyBriefCard } from "@/components/dashboard/daily-brief";
+import { AssistantChat } from "@/components/dashboard/assistant-chat";
 import { StockDetailSheet } from "@/components/dashboard/stock-detail-sheet";
 import { AllocationChart } from "@/components/dashboard/allocation-chart";
 import { SafetyRating } from "@/components/dashboard/safety-rating";
@@ -310,6 +311,9 @@ function ReadyView({
           <TabsTrigger value="analyzer" className="rounded-full px-4">
             Analyzer
           </TabsTrigger>
+          <TabsTrigger value="ask" className="rounded-full px-4">
+            Ask
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -414,6 +418,10 @@ function ReadyView({
 
         <TabsContent value="analyzer">
           <ArticleAnalyzer />
+        </TabsContent>
+
+        <TabsContent value="ask">
+          <AssistantChat />
         </TabsContent>
       </Tabs>
     </div>

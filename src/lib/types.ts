@@ -384,6 +384,21 @@ export type DailyBrief = {
   disclaimer: string;
 };
 
+// ---------------------------------------------------------------------------
+// Conversational assistant ("Ask")
+// ---------------------------------------------------------------------------
+
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type AssistantResponse = {
+  reply: string;
+  /** "llm" when answered by Claude; "unavailable" when the key is unset. */
+  source: "llm" | "unavailable";
+};
+
 export type PnlPeriod = "daily" | "weekly" | "monthly" | "total";
 
 export type PnlByPeriod = Record<PnlPeriod, { value: number; pct: number }>;
