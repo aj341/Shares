@@ -350,6 +350,40 @@ export type DerivedPosition = {
 // Period P&L (daily / weekly / monthly / total)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Daily AI Brief + Catalyst Radar
+// ---------------------------------------------------------------------------
+
+/** One upcoming catalyst (earnings/dividend) for a holding or watchlist name. */
+export type CatalystItem = {
+  ticker: string;
+  type: string;
+  date: string;
+  detail: string;
+  daysAway: number;
+};
+
+export type BriefWatchItem = {
+  ticker: string;
+  urgency: "high" | "medium" | "low";
+  note: string;
+};
+
+export type DailyBrief = {
+  generatedAt: string;
+  /** Overall posture for the book today. */
+  stance: "risk-on" | "neutral" | "risk-off" | "mixed";
+  headline: string;
+  /** 2–4 sentence narrative. */
+  summary: string;
+  watchItems: BriefWatchItem[];
+  /** Nearest upcoming catalysts across the book. */
+  catalysts: CatalystItem[];
+  source: "llm" | "heuristic";
+  hasData: boolean;
+  disclaimer: string;
+};
+
 export type PnlPeriod = "daily" | "weekly" | "monthly" | "total";
 
 export type PnlByPeriod = Record<PnlPeriod, { value: number; pct: number }>;

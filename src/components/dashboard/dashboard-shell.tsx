@@ -19,6 +19,7 @@ import { LiveClock } from "@/components/live-clock";
 import { KpiCards } from "@/components/dashboard/kpi-cards";
 import { HoldingsTable } from "@/components/dashboard/holdings-table";
 import { CashBalances } from "@/components/dashboard/cash-balances";
+import { DailyBriefCard } from "@/components/dashboard/daily-brief";
 import { StockDetailSheet } from "@/components/dashboard/stock-detail-sheet";
 import { AllocationChart } from "@/components/dashboard/allocation-chart";
 import { SafetyRating } from "@/components/dashboard/safety-rating";
@@ -312,6 +313,7 @@ function ReadyView({
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
+          <DailyBriefCard />
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <PerformanceChart data={perf.data} loading={perf.loading} />

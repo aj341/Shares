@@ -1,6 +1,7 @@
 import type {
   ApiError,
   ArticleImpactAnalysis,
+  DailyBrief,
   DashboardResponse,
   PerformanceResponse,
   PortfolioAlert,
@@ -42,6 +43,10 @@ export function fetchStocks(): Promise<StocksResponse> {
 
 export function fetchWatchlist(): Promise<WatchlistResponse> {
   return getJson<WatchlistResponse>("/api/watchlist");
+}
+
+export function fetchBrief(): Promise<DailyBrief> {
+  return getJson<DailyBrief>("/api/brief");
 }
 
 export function fetchAlerts(): Promise<{ alerts: PortfolioAlert[] }> {
