@@ -18,8 +18,29 @@ const SEND_URL =
   "https://gdcdynam.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest";
 const FLEX_VERSION = "3";
 
+/** Env var names we'll accept for the Flex token (canonical first). */
+const TOKEN_ENV_NAMES = [
+  "IBKR_FLEX_TOKEN",
+  "IBKR_FLEX_WEB_TOKEN",
+  "IBKR_TOKEN",
+  "IBKR_API_TOKEN",
+  "IBKR_API_KEY",
+  "IBKR_API",
+  "IBKR",
+  "FLEX_TOKEN",
+  "FLEX_WEB_TOKEN",
+] as const;
+
+function flexToken(): string | null {
+  for (const name of TOKEN_ENV_NAMES) {
+    const v = process.env[name]?.trim();
+    if (v) return v;
+  }
+  return null;
+}
+
 export function isIbkrConfigured(): boolean {
-  return Boolean(process.env.IBKR_FLEX_TOKEN?.trim());
+  return flexToken() !== null;
 }
 
 function queryId(): string {
@@ -87,8 +108,8 @@ async function fetchText(url: string): Promise<string> {
 
 /** Run the full Flex protocol and return the raw statement XML. */
 export async function fetchFlexXml(): Promise<string> {
-  const token = process.env.IBKR_FLEX_TOKEN?.trim();
-  if (!token) throw new Error("IBKR_FLEX_TOKEN not configured");
+  const token = flexToken();
+  if (!token) throw new Error("IBKR Flex token not configured");
 
   const sendXml = await fetchText(
     `${SEND_URL}?t=${encodeURIComponent(token)}&q=${encodeURIComponent(queryId())}&v=${FLEX_VERSION}`

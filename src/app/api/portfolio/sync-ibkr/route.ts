@@ -31,7 +31,11 @@ export async function GET(req: NextRequest) {
   }
 
   if (!isIbkrConfigured()) {
-    return NextResponse.json({ ok: false, reason: "IBKR_FLEX_TOKEN not configured" });
+    return NextResponse.json({
+      ok: false,
+      reason:
+        "IBKR Flex token not found. Set it in Railway as IBKR_FLEX_TOKEN (or IBKR_TOKEN / IBKR_API_KEY).",
+    });
   }
 
   try {
