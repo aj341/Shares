@@ -14,7 +14,7 @@ export type PositionInput = {
 
 /** Active Nasdaq holdings. ARM was fully sold and is intentionally excluded. */
 export const POSITIONS: PositionInput[] = [
-  { ticker: "MSFT", companyName: "Microsoft Corporation", shares: 15, entryPrice: 461.44 },
+  { ticker: "MSFT", companyName: "Microsoft Corporation", shares: 35, entryPrice: 442.26 },
   { ticker: "RBLX", companyName: "Roblox Corporation", shares: 30, entryPrice: 89.95 },
   { ticker: "GOOG", companyName: "Alphabet Inc. (Class C)", shares: 50, entryPrice: 351.37 },
   { ticker: "PLTR", companyName: "Palantir Technologies Inc.", shares: 60, entryPrice: 135.66 },
