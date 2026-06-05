@@ -18,6 +18,7 @@ export type MboumCandle = {
   dateUtc: number; // unix seconds
   close: number;
   adjClose: number;
+  volume: number;
 };
 
 type MboumHistoryResponse = {
@@ -119,6 +120,7 @@ export async function getStockHistory(
       dateUtc: c.date_utc,
       close: c.close,
       adjClose: c.adjclose ?? c.close,
+      volume: c.volume ?? 0,
     }))
     .sort((a, b) => a.dateUtc - b.dateUtc);
 }

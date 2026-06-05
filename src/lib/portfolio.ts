@@ -9,6 +9,9 @@ import {
 import { extractRsi, scoreHolding } from "@/lib/scoring";
 import { getMockMetrics, MOCK_QUOTES } from "@/lib/mock-data";
 import { getDerivedPortfolio } from "@/lib/portfolio-derivation";
+import { computeLiveMetrics } from "@/lib/live-metrics";
+import { buildLiveVerdict } from "@/lib/verdict";
+import { isMboumConfigured } from "@/lib/mboum";
 import * as finnhub from "@/lib/finnhub";
 import type {
   Announcement,
@@ -77,6 +80,18 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
     ),
   ]);
 
+  // 1b. Live scoring metrics from real data (Mboum) — null → mock fallback.
+  const liveMetricsArr = await Promise.all(
+    positions.map((p, i) =>
+      isMboumConfigured()
+        ? computeLiveMetrics(
+            p.ticker,
+            liveAnnouncements[i].map((a) => a.impactScore)
+          ).catch(() => null)
+        : Promise.resolve<Metric[] | null>(null)
+    )
+  );
+
   const base = positions.map((p: DerivedPosition, i: number) => {
     const { currentPrice, dayChangePct } = quotes[i];
     const costBasis = p.shares * p.entryPrice;
@@ -105,21 +120,27 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
     const portfolioWeight =
       totalPortfolioValue > 0 ? (b.marketValue / totalPortfolioValue) * 100 : 0;
 
-    const baseMetrics = getMockMetrics(b.position.ticker);
+    // Metrics from REAL data when available, else curated mock fallback.
+    const liveMetrics = liveMetricsArr[i];
+    const baseMetrics = liveMetrics ?? getMockMetrics(b.position.ticker);
     const metrics = withLivePositionSizeMetric(baseMetrics, portfolioWeight);
 
-    // Scoring uses the curated mock announcements (stable, documented engine);
-    // display uses live company news when available, else the mock fallback.
-    const mockAnn = getAnnouncements(b.position.ticker);
-    const announcements = liveAnnouncements[i].length ? liveAnnouncements[i] : mockAnn;
-    const verdict = getVerdict(b.position.ticker);
+    // Display = live company news (with source URLs); falls back to mock.
+    const announcements = liveAnnouncements[i].length
+      ? liveAnnouncements[i]
+      : getAnnouncements(b.position.ticker);
 
     const { score, signal } = scoreHolding(metrics, {
       rsi: extractRsi(metrics),
       unrealisedPnlPct: b.unrealisedPnlPct,
       portfolioWeight,
-      minAnnouncementImpact: minAnnouncementImpact(mockAnn),
+      minAnnouncementImpact: minAnnouncementImpact(announcements),
     });
+
+    // Verdict derived from the live metrics + news when real data is present.
+    const verdict = liveMetrics
+      ? buildLiveVerdict({ ticker: b.position.ticker, metrics, score, signal, announcements })
+      : getVerdict(b.position.ticker);
 
     return {
       ticker: b.position.ticker,
