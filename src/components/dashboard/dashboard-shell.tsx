@@ -29,6 +29,9 @@ import { StocksTab } from "@/components/dashboard/stocks-tab";
 import { WatchlistTab } from "@/components/dashboard/watchlist-tab";
 import { ArticleAnalyzer } from "@/components/dashboard/article-analyzer";
 import { AlertsBanner } from "@/components/dashboard/alerts-banner";
+import { SignalPerformance } from "@/components/dashboard/signal-performance";
+import { EventsRadar } from "@/components/dashboard/events-radar";
+import { PortfolioRisk } from "@/components/dashboard/portfolio-risk";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
 import { AnnouncementsFeed } from "@/components/dashboard/announcements-feed";
 import { DisagreementScorecard } from "@/components/dashboard/disagreement-scorecard";
@@ -344,6 +347,13 @@ function ReadyView({
             redistribution={redistribution}
             holdings={portfolio.holdings}
           />
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <PortfolioRisk />
+            <EventsRadar />
+          </div>
+
+          <SignalPerformance />
 
           <section className="space-y-3">
             <SectionTitle

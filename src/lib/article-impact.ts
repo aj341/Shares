@@ -6,6 +6,7 @@ import { buildPortfolio } from "@/lib/portfolio";
 import { getAnnouncements, getVerdict, minAnnouncementImpact } from "@/lib/announcements";
 import { buildStockTechnicals } from "@/lib/technicals";
 import { isMboumConfigured } from "@/lib/mboum";
+import { saveAnalysis, listAnalyses } from "@/lib/analyzer-store";
 import type {
   ArticleImpactAnalysis,
   ExtractedArticle,
@@ -271,14 +272,19 @@ function clampImpact(
 }
 
 // ---------------------------------------------------------------------------
-// Lightweight in-memory history (ephemeral, newest first)
+// History — persisted to Postgres when available, with an in-memory fallback
+// (so it still works locally without a DB).
 // ---------------------------------------------------------------------------
 
 const HISTORY: ArticleImpactAnalysis[] = [];
-export function recordHistory(a: ArticleImpactAnalysis): void {
+
+export async function recordHistory(a: ArticleImpactAnalysis): Promise<void> {
   HISTORY.unshift(a);
   if (HISTORY.length > 25) HISTORY.length = 25;
+  await saveAnalysis(a).catch(() => {});
 }
-export function getHistory(): ArticleImpactAnalysis[] {
-  return HISTORY;
+
+export async function getHistory(): Promise<ArticleImpactAnalysis[]> {
+  const db = await listAnalyses(25).catch(() => [] as ArticleImpactAnalysis[]);
+  return db.length ? db : HISTORY;
 }

@@ -8,6 +8,7 @@ import {
 } from "@/lib/mboum";
 import { getEarningsSurprise } from "@/lib/earnings";
 import { getValuationContext } from "@/lib/valuation";
+import { getRevisionTrend } from "@/lib/revisions";
 import { METRIC_DEFS } from "@/lib/mock-data";
 import type { Metric, StatusTone } from "@/lib/types";
 
@@ -96,13 +97,14 @@ export async function computeLiveMetrics(
   const cached = CACHE.get(ticker);
   if (cached && Date.now() - cached.ts < TTL_MS) return cached.metrics;
 
-  const [candles, targets, stats, fin, earnings, valCtx] = await Promise.all([
+  const [candles, targets, stats, fin, earnings, valCtx, revision] = await Promise.all([
     getStockHistory(ticker, { interval: "1d", monthsBack: 13 }),
     getPriceTargets(ticker),
     getKeyStats(ticker),
     getFinancials(ticker),
     getEarningsSurprise(ticker),
     getValuationContext(ticker),
+    getRevisionTrend(ticker),
   ]);
 
   const closes = candles.map((c) => c.close);
@@ -219,10 +221,19 @@ export async function computeLiveMetrics(
       newsNet > 0 ? "Positive" : newsNet < 0 ? "Negative" : "Balanced",
       newsNet > 0 ? "positive" : newsNet < 0 ? "negative" : "neutral",
     ],
-    // 19 — analyst revision / target proxy
-    upside != null
-      ? [upside >= 10 ? "Upward" : upside < 0 ? "Downward" : "Stable", upside >= 10 ? "positive" : upside < 0 ? "negative" : "neutral"]
-      : ["—", "neutral"],
+    // 19 — analyst revision momentum (live recommendation-trend delta)
+    revision != null
+      ? [
+          revision.label,
+          revision.direction === "upgrading"
+            ? "positive"
+            : revision.direction === "downgrading"
+              ? "negative"
+              : "neutral",
+        ]
+      : upside != null
+        ? [upside >= 10 ? "Upward" : upside < 0 ? "Downward" : "Stable", upside >= 10 ? "positive" : upside < 0 ? "negative" : "neutral"]
+        : ["—", "neutral"],
   ];
 
   const metrics: Metric[] = METRIC_DEFS.map((def, i) => {

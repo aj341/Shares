@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       });
     }
     const analysis = await analyzeArticle(url, ticker);
-    recordHistory(analysis);
+    await recordHistory(analysis);
     return NextResponse.json(analysis);
   } catch (err) {
     if (err instanceof ExtractionError) {
