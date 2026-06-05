@@ -216,12 +216,12 @@ export const METRIC_DEFS: MetricDef[] = [
     },
   },
   {
-    name: "Position size vs 30% cap",
+    name: "Position size vs 35% cap",
     category: "risk",
     desc: {
-      positive: "Comfortably within the 30% single-position cap.",
-      neutral: "Approaching the 30% position cap.",
-      negative: "At or above the 30% position cap.",
+      positive: "Comfortably within the 35% single-position cap.",
+      neutral: "Approaching the 35% position cap.",
+      negative: "At or above the 35% position cap.",
     },
   },
   // Sentiment (2)

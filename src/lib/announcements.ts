@@ -4,8 +4,10 @@ import {
   MOCK_VERDICTS,
   type AnalystView,
 } from "@/lib/mock-data";
+import * as finnhub from "@/lib/finnhub";
 import type {
   Announcement,
+  AnnouncementType,
   DisagreementRow,
   Signal,
   StatusTone,
@@ -15,13 +17,84 @@ import type {
 /**
  * Announcement / verdict engine.
  *
- * In mock mode this serves the curated verdicts. The same functions are the
- * integration point for a live provider: synthesize Announcement[] from
- * company-news, then derive a StockVerdict and the Disagreement Scorecard row.
+ * Curated mock announcements feed the SCORING engine (stable, documented).
+ * For DISPLAY, getLiveAnnouncements pulls real, clickable company news from
+ * Finnhub so users can open the full source article.
  */
 
 export function getAnnouncements(ticker: string): Announcement[] {
   return MOCK_ANNOUNCEMENTS[ticker] ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Live company news (Finnhub) → Announcement[] with source URLs
+// ---------------------------------------------------------------------------
+
+const POS_RE = /\b(beat|beats|surge|soar|jump|rally|record|raise[ds]?|upgrade[ds]?|outperform|growth|strong|win|wins|gain|gains|bullish|breakthrough|approval|expand|accelerat|profit)\w*/gi;
+const NEG_RE = /\b(miss|misses|plunge|drop|slump|fall|falls|decline|cut|cuts|downgrade[ds]?|lawsuit|probe|investigat|recall|warn|warning|weak|loss|losses|bearish|layoff|halt|delay|slowdown|risk)\w*/gi;
+
+function classifyType(text: string): AnnouncementType {
+  if (/\b(earnings|eps|quarter|revenue|guidance|results)\b/i.test(text)) return "earnings";
+  if (/\b(analyst|rating|price target|upgrade|downgrade|initiat|overweight|underweight)\b/i.test(text))
+    return "analyst";
+  if (/\b(launch|unveil|release|product|partnership|deal|acquisition|acquire)\b/i.test(text))
+    return "product";
+  if (/\b(sec|filing|8-k|10-q|10-k|prospectus)\b/i.test(text)) return "filing";
+  if (/\b(fed|inflation|tariff|interest rate|macro|recession)\b/i.test(text)) return "macro";
+  return "other";
+}
+
+function scoreImpact(text: string): { impact: StatusTone; impactScore: number } {
+  const pos = (text.match(POS_RE) || []).length;
+  const neg = (text.match(NEG_RE) || []).length;
+  const net = pos - neg;
+  const impactScore = Math.max(-3, Math.min(3, Math.round(net / 2)));
+  const impact: StatusTone = net > 0 ? "positive" : net < 0 ? "negative" : "neutral";
+  return { impact, impactScore };
+}
+
+/** Finnhub tags news under the primary listing — map share-class variants. */
+const NEWS_SYMBOL_ALIAS: Record<string, string> = { GOOG: "GOOGL" };
+
+/** Real recent company news as Announcement[] (newest first). Empty on failure. */
+export async function getLiveAnnouncements(ticker: string): Promise<Announcement[]> {
+  if (!finnhub.isFinnhubConfigured()) return [];
+  const sym = NEWS_SYMBOL_ALIAS[ticker] ?? ticker;
+  const now = new Date();
+  const from = new Date(now.getTime() - 21 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const to = now.toISOString().slice(0, 10);
+
+  const news = await finnhub.getCompanyNews(sym, from, to);
+  if (!news || news.length === 0) return [];
+
+  const relevant = news.filter((n) => {
+    const rel = (n.related || "").toUpperCase().split(/[,\s]+/);
+    return rel.includes(sym) || new RegExp(`\\b${sym}\\b`).test(n.headline);
+  });
+  // Prefer ticker-relevant items; fall back to all news only if none matched.
+  const pool = relevant.length > 0 ? relevant : news;
+
+  const seen = new Set<string>();
+  return pool
+    .filter((n) => n.headline && (seen.has(n.headline) ? false : (seen.add(n.headline), true)))
+    .sort((a, b) => b.datetime - a.datetime)
+    .slice(0, 8)
+    .map((n) => {
+      const text = `${n.headline} ${n.summary ?? ""}`;
+      const { impact, impactScore } = scoreImpact(text);
+      return {
+        date: new Date(n.datetime * 1000).toISOString().slice(0, 10),
+        title: n.headline,
+        source: n.source || "News",
+        type: classifyType(text),
+        url: n.url,
+        summary: n.summary?.trim() || n.headline,
+        impact,
+        impactScore,
+      };
+    });
 }
 
 export function getVerdict(ticker: string): StockVerdict {

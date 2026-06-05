@@ -2,6 +2,7 @@ import { resolveDataSource } from "@/lib/constants";
 import {
   getAnalystView,
   getAnnouncements,
+  getLiveAnnouncements,
   getVerdict,
   minAnnouncementImpact,
 } from "@/lib/announcements";
@@ -10,6 +11,7 @@ import { getMockMetrics, MOCK_QUOTES } from "@/lib/mock-data";
 import { getDerivedPortfolio } from "@/lib/portfolio-derivation";
 import * as finnhub from "@/lib/finnhub";
 import type {
+  Announcement,
   DataSource,
   DerivedPosition,
   Holding,
@@ -36,16 +38,16 @@ async function getQuoteFor(ticker: string, source: DataSource): Promise<Quote> {
   return MOCK_QUOTES[ticker] ?? { currentPrice: 0, dayChangePct: 0 };
 }
 
-/** Replace the "Position size vs 30% cap" metric with one reflecting live weight. */
+/** Replace the "Position size vs 35% cap" metric with one reflecting live weight. */
 function withLivePositionSizeMetric(metrics: Metric[], weight: number): Metric[] {
   return metrics.map((m) => {
-    if (m.name !== "Position size vs 30% cap") return m;
+    if (m.name !== "Position size vs 35% cap") return m;
     const status =
-      weight >= 30 ? "negative" : weight >= 25 ? "neutral" : "positive";
+      weight >= 35 ? "negative" : weight >= 30 ? "neutral" : "positive";
     const desc: Record<typeof status, string> = {
-      positive: "Comfortably within the 30% single-position cap.",
-      neutral: "Approaching the 30% position cap.",
-      negative: "At or above the 30% position cap.",
+      positive: "Comfortably within the 35% single-position cap.",
+      neutral: "Approaching the 35% position cap.",
+      negative: "At or above the 35% position cap.",
     };
     return {
       ...m,
@@ -63,10 +65,17 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
   // 0. Active positions + cash derived from the transaction ledger.
   const { positions, cash: currentCash } = await getDerivedPortfolio();
 
-  // 1. Quotes + raw position economics.
-  const quotes = await Promise.all(
-    positions.map((p) => getQuoteFor(p.ticker, source))
-  );
+  // 1. Quotes + live news (display), fetched in parallel per ticker.
+  const [quotes, liveAnnouncements] = await Promise.all([
+    Promise.all(positions.map((p) => getQuoteFor(p.ticker, source))),
+    Promise.all(
+      positions.map((p) =>
+        source === "finnhub"
+          ? getLiveAnnouncements(p.ticker).catch(() => [] as Announcement[])
+          : Promise.resolve<Announcement[]>([])
+      )
+    ),
+  ]);
 
   const base = positions.map((p: DerivedPosition, i: number) => {
     const { currentPrice, dayChangePct } = quotes[i];
@@ -92,21 +101,24 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
   const totalPortfolioValue = totalMarketValue + cash;
 
   // 3. Build, score and enrich each holding.
-  const holdings: Holding[] = base.map((b) => {
+  const holdings: Holding[] = base.map((b, i) => {
     const portfolioWeight =
       totalPortfolioValue > 0 ? (b.marketValue / totalPortfolioValue) * 100 : 0;
 
     const baseMetrics = getMockMetrics(b.position.ticker);
     const metrics = withLivePositionSizeMetric(baseMetrics, portfolioWeight);
 
-    const announcements = getAnnouncements(b.position.ticker);
+    // Scoring uses the curated mock announcements (stable, documented engine);
+    // display uses live company news when available, else the mock fallback.
+    const mockAnn = getAnnouncements(b.position.ticker);
+    const announcements = liveAnnouncements[i].length ? liveAnnouncements[i] : mockAnn;
     const verdict = getVerdict(b.position.ticker);
 
     const { score, signal } = scoreHolding(metrics, {
       rsi: extractRsi(metrics),
       unrealisedPnlPct: b.unrealisedPnlPct,
       portfolioWeight,
-      minAnnouncementImpact: minAnnouncementImpact(announcements),
+      minAnnouncementImpact: minAnnouncementImpact(mockAnn),
     });
 
     return {

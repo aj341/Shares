@@ -31,7 +31,7 @@ export const CURRENT_CASH = 33541.78;
 
 export const PORTFOLIO_RULES = {
   /** Maximum single-position weight. */
-  maxPositionWeight: 0.3,
+  maxPositionWeight: 0.35,
   /** Cash buffer to retain, as a fraction of total portfolio value. */
   targetCashBufferPct: 0.05,
   /** Whole-share rounding only — no fractional trades. */

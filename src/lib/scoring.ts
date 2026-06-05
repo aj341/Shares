@@ -1,5 +1,6 @@
 import {
   CATEGORY_WEIGHTS,
+  PORTFOLIO_RULES,
   signalFromScore,
 } from "@/lib/constants";
 import { clamp } from "@/lib/utils";
@@ -128,13 +129,12 @@ export function scoreHolding(
     score = Math.min(score, 39);
   }
 
-  // Rule 4: over the 30% position cap → cap at 79.
-  if (ctx.portfolioWeight > 30) {
+  // Rule 4: over the position cap → cap at 79.
+  const capPct = PORTFOLIO_RULES.maxPositionWeight * 100;
+  if (ctx.portfolioWeight > capPct) {
     if (score > 79) {
       overridesApplied.push(
-        `Position weight ${ctx.portfolioWeight.toFixed(
-          1
-        )}% > 30% cap → score capped at 79`
+        `Position weight ${ctx.portfolioWeight.toFixed(1)}% > ${capPct}% cap → score capped at 79`
       );
     }
     score = Math.min(score, 79);
