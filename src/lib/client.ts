@@ -3,6 +3,7 @@ import type {
   ArticleImpactAnalysis,
   DashboardResponse,
   PerformanceResponse,
+  PortfolioAlert,
   PortfolioTransaction,
   StocksResponse,
   TradeType,
@@ -40,6 +41,10 @@ export function fetchStocks(): Promise<StocksResponse> {
 
 export function fetchWatchlist(): Promise<WatchlistResponse> {
   return getJson<WatchlistResponse>("/api/watchlist");
+}
+
+export function fetchAlerts(): Promise<{ alerts: PortfolioAlert[] }> {
+  return getJson<{ alerts: PortfolioAlert[] }>("/api/alerts");
 }
 
 export function fetchTransactions(): Promise<{ transactions: PortfolioTransaction[] }> {

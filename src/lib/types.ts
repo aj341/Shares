@@ -449,6 +449,13 @@ export type ArticleImpactAnalysis = {
   createdAt: string;
 };
 
+export type PortfolioAlert = {
+  ticker: string;
+  kind: "signal_change" | "rsi_extreme" | "high_impact_news" | "near_cap";
+  message: string;
+  severity: "info" | "warning" | "critical";
+};
+
 export type ExtractedArticle = {
   url: string;
   canonicalUrl?: string;

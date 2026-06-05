@@ -28,6 +28,7 @@ import { SectorAllocation } from "@/components/dashboard/sector-allocation";
 import { StocksTab } from "@/components/dashboard/stocks-tab";
 import { WatchlistTab } from "@/components/dashboard/watchlist-tab";
 import { ArticleAnalyzer } from "@/components/dashboard/article-analyzer";
+import { AlertsBanner } from "@/components/dashboard/alerts-banner";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
 import { AnnouncementsFeed } from "@/components/dashboard/announcements-feed";
 import { DisagreementScorecard } from "@/components/dashboard/disagreement-scorecard";
@@ -37,6 +38,7 @@ import {
   type DialogType,
 } from "@/components/dashboard/portfolio-dialogs";
 import {
+  fetchAlerts,
   fetchDashboard,
   fetchPerformance,
   fetchStocks,
@@ -46,6 +48,7 @@ import { computeInsights } from "@/lib/insights";
 import type {
   DashboardResponse,
   PerformanceResponse,
+  PortfolioAlert,
   StocksResponse,
   WatchlistResponse,
 } from "@/lib/types";
@@ -64,6 +67,7 @@ export function DashboardShell() {
   const [perf, setPerf] = React.useState<PerfState>({ loading: true, data: null });
   const [stocks, setStocks] = React.useState<StocksState>({ loading: true, data: null });
   const [watch, setWatch] = React.useState<WatchState>({ loading: true, data: null });
+  const [alerts, setAlerts] = React.useState<PortfolioAlert[]>([]);
   const [selected, setSelected] = React.useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   const [dialog, setDialog] = React.useState<DialogState>(null);
@@ -111,12 +115,22 @@ export function DashboardShell() {
     }
   }, []);
 
+  const loadAlerts = React.useCallback(async () => {
+    try {
+      const { alerts: a } = await fetchAlerts();
+      setAlerts(a);
+    } catch {
+      setAlerts([]);
+    }
+  }, []);
+
   React.useEffect(() => {
     void load();
     void loadPerf();
     void loadStocks();
     void loadWatch();
-  }, [load, loadPerf, loadStocks, loadWatch]);
+    void loadAlerts();
+  }, [load, loadPerf, loadStocks, loadWatch, loadAlerts]);
 
   const handleSelect = (ticker: string) => {
     setSelected(ticker);
@@ -131,7 +145,8 @@ export function DashboardShell() {
     void loadPerf();
     void loadStocks();
     void loadWatch();
-  }, [load, loadPerf, loadStocks, loadWatch]);
+    void loadAlerts();
+  }, [load, loadPerf, loadStocks, loadWatch, loadAlerts]);
 
   const selectedHolding =
     state.status === "ready"
@@ -157,6 +172,7 @@ export function DashboardShell() {
             perf={perf}
             stocks={stocks}
             watch={watch}
+            alerts={alerts}
             onSelect={handleSelect}
             onAction={openDialog}
           />
@@ -228,6 +244,7 @@ function ReadyView({
   perf,
   stocks,
   watch,
+  alerts,
   onSelect,
   onAction,
 }: {
@@ -235,6 +252,7 @@ function ReadyView({
   perf: PerfState;
   stocks: StocksState;
   watch: WatchState;
+  alerts: PortfolioAlert[];
   onSelect: (ticker: string) => void;
   onAction: (type: DialogType, ticker?: string) => void;
 }) {
@@ -243,6 +261,7 @@ function ReadyView({
 
   return (
     <div className="space-y-6">
+      <AlertsBanner alerts={alerts} />
       <KpiCards portfolio={portfolio} pnlByPeriod={perf.data?.pnlByPeriod ?? null} />
 
       <div className="flex flex-wrap items-center justify-end gap-2">

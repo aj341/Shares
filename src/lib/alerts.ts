@@ -2,7 +2,7 @@ import "server-only";
 import { buildPortfolio } from "@/lib/portfolio";
 import { ensureSnapshotSchema } from "@/lib/backtest";
 import { isDatabaseConfigured, query } from "@/lib/db";
-import type { Holding } from "@/lib/types";
+import type { Holding, PortfolioAlert } from "@/lib/types";
 
 /**
  * Portfolio alerts: derived from the CURRENT portfolio state, optionally compared
@@ -11,12 +11,7 @@ import type { Holding } from "@/lib/types";
  * NUMERIC columns come back from pg as STRINGS — numeric reads use Number().
  */
 
-export type PortfolioAlert = {
-  ticker: string;
-  kind: "signal_change" | "rsi_extreme" | "high_impact_news" | "near_cap";
-  message: string;
-  severity: "info" | "warning" | "critical";
-};
+export type { PortfolioAlert };
 
 const POSITION_CAP_PCT = 33;
 const RSI_OVERBOUGHT = 75;
