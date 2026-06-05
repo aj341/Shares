@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sparkline } from "@/components/dashboard/sparkline";
-import { cn, formatCurrency, formatNumber, formatPct } from "@/lib/utils";
+import { cn, formatCurrency, formatNumber, formatPct, formatUsd } from "@/lib/utils";
 import { signalToVariant, signedTextClass } from "@/lib/ui";
 import { STATUS_LABELS } from "@/lib/constants";
 import { sectorFor } from "@/lib/sectors";
@@ -116,7 +116,7 @@ function StockCard({
           </button>
           <div className="flex items-start gap-1">
             <div className="text-right">
-              <p className="font-mono-nums text-lg font-bold">{formatCurrency(h.currentPrice)}</p>
+              <p className="font-mono-nums text-lg font-bold">{formatUsd(h.currentPrice)}</p>
               <p className={cn("font-mono-nums text-xs", signedTextClass(h.dayChangePct))}>
                 {h.dayChangePct >= 0 ? "▲" : "▼"} {formatPct(Math.abs(h.dayChangePct))}
               </p>
@@ -316,8 +316,8 @@ function buildSlides(h: Holding, tech?: StockTechnicals) {
       title: "Position",
       content: (
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-          <PosRow label="Entry price" value={formatCurrency(h.entryPrice)} />
-          <PosRow label="Current price" value={formatCurrency(h.currentPrice)} className={signedTextClass(h.currentPrice - h.entryPrice)} />
+          <PosRow label="Entry price" value={formatUsd(h.entryPrice)} />
+          <PosRow label="Current price" value={formatUsd(h.currentPrice)} className={signedTextClass(h.currentPrice - h.entryPrice)} />
           <PosRow label="Unrealised P&L" value={formatCurrency(h.unrealisedPnl, { sign: true })} className={signedTextClass(h.unrealisedPnl)} />
           <PosRow label="Return" value={formatPct(h.unrealisedPnlPct, { sign: true })} className={signedTextClass(h.unrealisedPnlPct)} />
           <PosRow label="Cost basis" value={formatCurrency(h.costBasis)} />
@@ -390,7 +390,7 @@ function MaCard({
     <div className="rounded-lg bg-muted/40 p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="font-mono-nums text-sm font-semibold">
-        {ma != null ? formatCurrency(ma) : "—"}
+        {ma != null ? formatUsd(ma) : "—"}
       </p>
       {side && (
         <p className={cn("text-[11px]", side === "above" ? "[color:hsl(var(--positive))]" : "[color:hsl(var(--negative))]")}>
@@ -412,7 +412,7 @@ function TargetSlide({ tech, price }: { tech?: StockTechnicals; price: number })
         <div className="mb-1 flex items-center justify-between text-xs">
           <span className="text-muted-foreground">Analyst Target</span>
           <span className="font-mono-nums font-semibold">
-            {formatCurrency(tech.targetMean)}{" "}
+            {formatUsd(tech.targetMean)}{" "}
             <span className={upside >= 0 ? "[color:hsl(var(--positive))]" : "[color:hsl(var(--negative))]"}>
               {upside >= 0 ? "+" : ""}
               {Math.round(upside)}%

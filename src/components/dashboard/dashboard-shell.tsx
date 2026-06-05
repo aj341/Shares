@@ -18,6 +18,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { LiveClock } from "@/components/live-clock";
 import { KpiCards } from "@/components/dashboard/kpi-cards";
 import { HoldingsTable } from "@/components/dashboard/holdings-table";
+import { CashBalances } from "@/components/dashboard/cash-balances";
 import { StockDetailSheet } from "@/components/dashboard/stock-detail-sheet";
 import { AllocationChart } from "@/components/dashboard/allocation-chart";
 import { SafetyRating } from "@/components/dashboard/safety-rating";
@@ -342,6 +343,12 @@ function ReadyView({
               />
             </CardContent>
           </Card>
+
+          <CashBalances
+            balances={data.cashBalances}
+            totalAud={data.currentCash}
+            fxLive={data.fxLive}
+          />
         </TabsContent>
 
         <TabsContent value="stocks">

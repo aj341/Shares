@@ -5,21 +5,41 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Currency formatter (AUD book, USD-priced US equities are tracked in book ccy). */
+/**
+ * Money formatter with an explicit currency prefix. We prefix manually (rather
+ * than Intl currency style) so AUD and USD are visually distinct: portfolio
+ * value / P&L / cash are in AUD ("A$"), while per-share prices stay in USD
+ * ("$"), mirroring the broker.
+ */
+function money(
+  value: number,
+  symbol: string,
+  opts: { compact?: boolean; sign?: boolean; whole?: boolean } = {}
+): string {
+  const fractionDigits = opts.compact ? 1 : opts.whole ? 0 : 2;
+  const num = new Intl.NumberFormat("en-US", {
+    notation: opts.compact ? "compact" : "standard",
+    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: opts.compact ? 0 : fractionDigits,
+  }).format(Math.abs(value));
+  const sign = value < 0 ? "-" : opts.sign && value > 0 ? "+" : "";
+  return `${sign}${symbol}${num}`;
+}
+
+/** AUD formatter for portfolio value / P&L / cash (book currency → "A$"). */
 export function formatCurrency(
   value: number,
   opts: { compact?: boolean; sign?: boolean; whole?: boolean } = {}
 ): string {
-  const fractionDigits = opts.compact ? 1 : opts.whole ? 0 : 2;
-  const formatter = new Intl.NumberFormat("en-AU", {
-    style: "currency",
-    currency: "AUD",
-    notation: opts.compact ? "compact" : "standard",
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: opts.compact ? 0 : fractionDigits,
-    signDisplay: opts.sign ? "exceptZero" : "auto",
-  });
-  return formatter.format(value);
+  return money(value, "A$", opts);
+}
+
+/** USD formatter for per-share prices (US equities are quoted in USD → "$"). */
+export function formatUsd(
+  value: number,
+  opts: { sign?: boolean; whole?: boolean } = {}
+): string {
+  return money(value, "$", opts);
 }
 
 export function formatNumber(value: number, maxFractionDigits = 2): string {

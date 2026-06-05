@@ -1,4 +1,9 @@
-import { buildPortfolio, getAnalystView } from "@/lib/portfolio";
+import {
+  buildPortfolio,
+  getAnalystView,
+  toAudPortfolio,
+  toAudRedistribution,
+} from "@/lib/portfolio";
 import { buildRedistribution } from "@/lib/redistribution";
 import { buildDisagreementRow } from "@/lib/announcements";
 import { extractRsi, scoreHolding } from "@/lib/scoring";
@@ -84,8 +89,15 @@ function buildKpis(portfolio: PortfolioResponse): DashboardKpis {
 
 /** Aggregate everything for the /api/dashboard endpoint. */
 export async function buildDashboard(): Promise<DashboardResponse> {
-  const portfolio = await buildPortfolio();
-  const redistribution = buildRedistribution(portfolio);
+  // Engine runs in USD; convert to AUD for display (prices stay USD).
+  const portfolioUsd = await buildPortfolio();
+  const redistributionUsd = buildRedistribution(portfolioUsd);
+
+  const portfolio = toAudPortfolio(portfolioUsd);
+  const redistribution = toAudRedistribution(
+    redistributionUsd,
+    portfolioUsd.fxUsdToAud
+  );
   const disagreement = buildDisagreement(portfolio);
 
   return {
@@ -106,5 +118,11 @@ export async function buildDashboard(): Promise<DashboardResponse> {
     redistributionSummary: redistribution.summary,
     disagreementRows: disagreement,
     kpis: buildKpis(portfolio),
+
+    // Currency / cash.
+    displayCurrency: portfolio.displayCurrency,
+    cashBalances: portfolio.cashBalances,
+    fxUsdToAud: portfolio.fxUsdToAud,
+    fxLive: portfolio.fxLive,
   };
 }

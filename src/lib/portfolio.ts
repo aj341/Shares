@@ -1,4 +1,5 @@
-import { resolveDataSource } from "@/lib/constants";
+import { resolveDataSource, CASH_BALANCES, DISPLAY_CURRENCY } from "@/lib/constants";
+import { getFxRates } from "@/lib/fx";
 import {
   getAnalystView,
   getAnnouncements,
@@ -16,11 +17,13 @@ import { isMboumConfigured } from "@/lib/mboum";
 import * as finnhub from "@/lib/finnhub";
 import type {
   Announcement,
+  CashBalance,
   DataSource,
   DerivedPosition,
   Holding,
   Metric,
   PortfolioResponse,
+  RedistributionResponse,
   StockVerdict,
 } from "@/lib/types";
 
@@ -67,8 +70,22 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
   const source = resolveDataSource();
   const asOf = new Date().toISOString();
 
-  // 0. Active positions + cash derived from the transaction ledger.
-  const { positions, cash: currentCash } = await getDerivedPortfolio();
+  // 0. Active positions from the ledger; cash from the real broker balances.
+  //    Engine works in USD (US equities are USD-priced); we convert to AUD for
+  //    display in toAudPortfolio. Cash is the multi-currency broker balance,
+  //    summed to USD here so the USD engine (redistribution) stays consistent.
+  const [{ positions }, fx] = await Promise.all([
+    getDerivedPortfolio(),
+    getFxRates(),
+  ]);
+
+  // Balances are already AUD market values (broker's column) — no re-conversion.
+  const cashBalances: CashBalance[] = CASH_BALANCES.map((b) => ({
+    currency: b.currency,
+    amountAud: round2(b.amountAud),
+  }));
+  const cashAud = cashBalances.reduce((s, b) => s + b.amountAud, 0);
+  const currentCash = cashAud * fx.audToUsd; // USD-equivalent for the engine
 
   // 1. Quotes + live news (display), fetched in parallel per ticker.
   const [quotes, liveAnnouncements] = await Promise.all([
@@ -193,6 +210,8 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
   const totalUnrealisedPnlPct =
     totalCostBasis > 0 ? (totalUnrealisedPnl / totalCostBasis) * 100 : 0;
 
+  // NOTE: numbers here are USD (engine currency). The display layer
+  // (toAudPortfolio) converts value/P&L/cash to AUD; per-share prices stay USD.
   return {
     holdings,
     cash: round2(cash),
@@ -202,10 +221,70 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
     totalUnrealisedPnlPct: round2(totalUnrealisedPnlPct),
     asOf,
     source,
+    displayCurrency: "USD",
+    cashBalances,
+    fxUsdToAud: fx.usdToAud,
+    fxLive: fx.live,
   };
 }
 
 export { getAnalystView };
+
+/**
+ * Convert a USD-engine portfolio into the AUD display shape: value, cost basis,
+ * P&L and cash are converted to AUD; per-share prices (currentPrice/entryPrice)
+ * stay in USD, matching the broker. Percentages and weights are unchanged.
+ */
+export function toAudPortfolio(p: PortfolioResponse): PortfolioResponse {
+  const r = p.fxUsdToAud;
+  return {
+    ...p,
+    cash: round2(p.cash * r),
+    totalPortfolioValue: round2(p.totalPortfolioValue * r),
+    totalCostBasis: round2(p.totalCostBasis * r),
+    totalUnrealisedPnl: round2(p.totalUnrealisedPnl * r),
+    // totalUnrealisedPnlPct is a ratio — unchanged.
+    holdings: p.holdings.map((h) => ({
+      ...h,
+      // currentPrice + entryPrice intentionally stay in USD.
+      costBasis: round2(h.costBasis * r),
+      marketValue: round2(h.marketValue * r),
+      unrealisedPnl: round2(h.unrealisedPnl * r),
+    })),
+    displayCurrency: DISPLAY_CURRENCY,
+  };
+}
+
+/**
+ * Convert a USD redistribution plan to AUD for display. Money amounts convert;
+ * per-share estimatedPrice stays USD and share counts are unchanged.
+ */
+export function toAudRedistribution(
+  d: RedistributionResponse,
+  usdToAud: number
+): RedistributionResponse {
+  const r = usdToAud;
+  return {
+    ...d,
+    recommendations: d.recommendations.map((rec) => ({
+      ...rec,
+      // estimatedPrice stays USD (per-share); proceeds/cost convert.
+      estimatedProceedsOrCost: round2(rec.estimatedProceedsOrCost * r),
+      estimatedRealisedPnl:
+        rec.estimatedRealisedPnl != null
+          ? round2(rec.estimatedRealisedPnl * r)
+          : rec.estimatedRealisedPnl,
+    })),
+    before: d.before.map((a) => ({ ...a, marketValue: round2(a.marketValue * r) })),
+    after: d.after.map((a) => ({ ...a, marketValue: round2(a.marketValue * r) })),
+    summary: {
+      ...d.summary,
+      totalProceeds: round2(d.summary.totalProceeds * r),
+      totalInvested: round2(d.summary.totalInvested * r),
+      newCashBalance: round2(d.summary.newCashBalance * r),
+    },
+  };
+}
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;

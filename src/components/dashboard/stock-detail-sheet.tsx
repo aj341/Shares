@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { cn, formatCurrency, formatNumber, formatPct } from "@/lib/utils";
+import { cn, formatCurrency, formatNumber, formatPct, formatUsd } from "@/lib/utils";
 import { scoreColorClass, signalToVariant, signedTextClass } from "@/lib/ui";
 import { STATUS_LABELS } from "@/lib/constants";
 import { MetricGrid } from "@/components/dashboard/metric-grid";
@@ -79,7 +79,7 @@ function DetailBody({ holding: h }: { holding: Holding }) {
           </div>
           <div className="text-right">
             <p className="text-2xl font-semibold tabular-nums">
-              {formatCurrency(h.currentPrice)}
+              {formatUsd(h.currentPrice)}
             </p>
             <p className={cn("text-xs tabular-nums", signedTextClass(h.dayChangePct))}>
               {formatPct(h.dayChangePct, { sign: true })} today
@@ -89,7 +89,7 @@ function DetailBody({ holding: h }: { holding: Holding }) {
 
         <div className="mt-4 grid grid-cols-3 gap-4 sm:grid-cols-4">
           <Stat label="Shares" value={formatNumber(h.shares, 0)} />
-          <Stat label="Entry" value={formatCurrency(h.entryPrice)} />
+          <Stat label="Entry" value={formatUsd(h.entryPrice)} />
           <Stat label="Mkt value" value={formatCurrency(h.marketValue, { compact: true })} />
           <Stat label="Weight" value={`${formatNumber(h.portfolioWeight, 1)}%`} />
           <Stat

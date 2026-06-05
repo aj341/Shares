@@ -1,5 +1,6 @@
 import { getStockHistory, isMboumConfigured } from "@/lib/mboum";
 import type { MboumInterval } from "@/lib/mboum";
+import { getFxRates } from "@/lib/fx";
 import { getDerivedPortfolio } from "@/lib/portfolio-derivation";
 import {
   DEFAULT_PERFORMANCE_RANGE,
@@ -64,6 +65,8 @@ export async function buildPerformance(
   const { key, spec } = resolveRange(range);
   const empty: PerformanceResponse = {
     series: [],
+    seriesValue: [],
+    valueCurrency: "AUD",
     tickers: [],
     range: key,
     rangeLabel: spec.label,
@@ -75,7 +78,10 @@ export async function buildPerformance(
 
   if (!isMboumConfigured()) return empty;
 
-  const { positions } = await getDerivedPortfolio();
+  const [{ positions }, fx] = await Promise.all([
+    getDerivedPortfolio(),
+    getFxRates(),
+  ]);
   if (positions.length === 0) return empty;
 
   const histories = await Promise.all(
@@ -123,10 +129,15 @@ export async function buildPerformance(
     0
   );
 
-  // Rebased series + a per-date book value for the period P&L calc.
+  // Rebased % series + an absolute AUD value series (same dates), plus a
+  // per-date book value (USD) for the period P&L calc.
   const bookByDate: number[] = [];
-  const series: PerformancePoint[] = dates.map((date) => {
+  const series: PerformancePoint[] = [];
+  const seriesValue: PerformancePoint[] = [];
+  const r = fx.usdToAud;
+  for (const date of dates) {
     const point: PerformancePoint = { date } as PerformancePoint;
+    const valuePoint: PerformancePoint = { date } as PerformancePoint;
     let book = 0;
     let counted = false;
     for (const h of usable) {
@@ -135,18 +146,24 @@ export async function buildPerformance(
       point[h.position.ticker] = round2(
         (close / firstClose.get(h.position.ticker)! - 1) * 100
       );
-      book += h.position.shares * close;
+      const valueUsd = h.position.shares * close;
+      valuePoint[h.position.ticker] = round2(valueUsd * r); // AUD
+      book += valueUsd;
       counted = true;
     }
     if (counted && firstBookValue > 0) {
       point.Portfolio = round2((book / firstBookValue - 1) * 100);
+      valuePoint.Portfolio = round2(book * r); // AUD
     }
     bookByDate.push(book);
-    return point;
-  });
+    series.push(point);
+    seriesValue.push(valuePoint);
+  }
 
   return {
     series,
+    seriesValue,
+    valueCurrency: "AUD",
     tickers,
     range: key,
     rangeLabel: spec.label,

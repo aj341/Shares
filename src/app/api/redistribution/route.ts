@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { buildPortfolio } from "@/lib/portfolio";
+import { buildPortfolio, toAudRedistribution } from "@/lib/portfolio";
 import { buildRedistribution } from "@/lib/redistribution";
 import type { ApiError } from "@/lib/types";
 
@@ -8,7 +8,11 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const portfolio = await buildPortfolio();
-    return NextResponse.json(buildRedistribution(portfolio));
+    const plan = toAudRedistribution(
+      buildRedistribution(portfolio),
+      portfolio.fxUsdToAud
+    );
+    return NextResponse.json(plan);
   } catch (err) {
     const body: ApiError = {
       error: "Failed to build redistribution plan",

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { buildPortfolio } from "@/lib/portfolio";
+import { buildPortfolio, toAudPortfolio } from "@/lib/portfolio";
 import type { ApiError } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const portfolio = await buildPortfolio();
+    const portfolio = toAudPortfolio(await buildPortfolio());
     return NextResponse.json(portfolio);
   } catch (err) {
     const body: ApiError = {

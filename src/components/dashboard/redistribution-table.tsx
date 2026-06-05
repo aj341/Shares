@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, formatUsd } from "@/lib/utils";
 import { signedTextClass, type BadgeVariant } from "@/lib/ui";
 import type {
   RedistributionSummary,
@@ -114,7 +114,7 @@ export function RedistributionTable({
               <TableCell className="font-semibold">{r.ticker}</TableCell>
               <TableCell className="text-right tabular-nums">{r.shares}</TableCell>
               <TableCell className="text-right tabular-nums">
-                {formatCurrency(r.estimatedPrice)}
+                {formatUsd(r.estimatedPrice)}
               </TableCell>
               <TableCell className="text-right tabular-nums">
                 {formatCurrency(r.estimatedProceedsOrCost)}

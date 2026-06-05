@@ -26,7 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn, formatCurrency, formatNumber, formatPct } from "@/lib/utils";
+import { cn, formatCurrency, formatNumber, formatPct, formatUsd } from "@/lib/utils";
 import { signalToVariant, signedTextClass, scoreColorClass } from "@/lib/ui";
 import { STATUS_LABELS } from "@/lib/constants";
 import type { Holding } from "@/lib/types";
@@ -95,7 +95,7 @@ export function HoldingsTable({
               {formatNumber(h.shares, 0)}
             </TableCell>
             <TableCell className="text-right font-mono-nums">
-              {formatCurrency(h.currentPrice)}
+              {formatUsd(h.currentPrice)}
             </TableCell>
             <TableCell
               className={cn(

@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn, formatCurrency, formatPct } from "@/lib/utils";
+import { cn, formatPct, formatUsd } from "@/lib/utils";
 import type {
   WatchlistBucket,
   WatchlistItem,
@@ -149,14 +149,14 @@ function WatchRow({ item }: { item: WatchlistItem }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-4">
-          <Stat label="Price" value={item.price != null ? formatCurrency(item.price) : "—"} />
+          <Stat label="Price" value={item.price != null ? formatUsd(item.price) : "—"} />
           <Stat
             label="Upside"
             value={item.upsidePct != null ? formatPct(item.upsidePct, { sign: true }) : "—"}
             className={item.upsidePct != null && item.upsidePct >= 0 ? "[color:hsl(var(--positive))]" : "[color:hsl(var(--negative))]"}
           />
           <Stat label="RSI" value={item.rsi != null ? String(item.rsi) : "—"} className="[color:hsl(var(--warning))]" />
-          <Stat label="Target" value={item.targetMean != null ? formatCurrency(item.targetMean) : "—"} className="[color:hsl(var(--brand))]" />
+          <Stat label="Target" value={item.targetMean != null ? formatUsd(item.targetMean) : "—"} className="[color:hsl(var(--brand))]" />
           <Badge variant="outline" className={meta.tone}>{item.signalLabel}</Badge>
           <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
         </div>
@@ -165,7 +165,7 @@ function WatchRow({ item }: { item: WatchlistItem }) {
       {open && (
         <CardContent className="space-y-4 border-t pt-4">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-            <Detail label="Price" value={item.price != null ? formatCurrency(item.price) : "—"} />
+            <Detail label="Price" value={item.price != null ? formatUsd(item.price) : "—"} />
             <Detail label="P/E" value={item.peRatio != null ? item.peRatio.toFixed(1) : "—"} />
             <Detail label="Analyst Rating" value={item.analystRating ?? "—"} />
             <Detail label="Bullish %" value={item.bullishPct != null ? `${item.bullishPct}%` : "—"} />
@@ -173,7 +173,7 @@ function WatchRow({ item }: { item: WatchlistItem }) {
               label="52-Week Range"
               value={
                 item.week52Low != null && item.week52High != null
-                  ? `${formatCurrency(item.week52Low)}–${formatCurrency(item.week52High)}`
+                  ? `${formatUsd(item.week52Low)}–${formatUsd(item.week52High)}`
                   : "—"
               }
             />

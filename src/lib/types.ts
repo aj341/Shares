@@ -152,8 +152,15 @@ export type RedistributionSummary = {
 // API envelopes
 // ---------------------------------------------------------------------------
 
+/** One currency bucket's cash, expressed as its AUD market value. */
+export type CashBalance = {
+  currency: string;
+  amountAud: number;
+};
+
 export type PortfolioResponse = {
   holdings: Holding[];
+  /** Combined cash in the display currency (AUD). */
   cash: number;
   totalPortfolioValue: number;
   totalCostBasis: number;
@@ -161,6 +168,14 @@ export type PortfolioResponse = {
   totalUnrealisedPnlPct: number;
   asOf: string;
   source: DataSource;
+  /** Display currency for values/cash (per-share prices stay in USD). */
+  displayCurrency: string;
+  /** Per-currency cash breakdown (for the dedicated Cash section). */
+  cashBalances: CashBalance[];
+  /** 1 USD in AUD, used to convert USD-priced holdings for display. */
+  fxUsdToAud: number;
+  /** Whether the FX rate is live (vs static fallback). */
+  fxLive: boolean;
 };
 
 export type ScoresResponse = {
@@ -211,6 +226,7 @@ export type DashboardKpis = {
 };
 
 export type DashboardResponse = {
+  // (currency fields below the aliases)
   // Nested shape (original — kept for backward compatibility).
   portfolio: PortfolioResponse;
   redistribution: RedistributionResponse;
@@ -228,6 +244,12 @@ export type DashboardResponse = {
   redistributionSummary: RedistributionSummary;
   disagreementRows: DisagreementRow[];
   kpis: DashboardKpis;
+
+  // Currency / cash (additive).
+  displayCurrency: string;
+  cashBalances: CashBalance[];
+  fxUsdToAud: number;
+  fxLive: boolean;
 };
 
 /** One row of the performance chart: a date plus rebased % returns per series. */
@@ -236,6 +258,10 @@ export type PerformancePoint = { date: string } & Record<string, number>;
 export type PerformanceResponse = {
   /** Rebased to 0% at the start of the window. Includes a "Portfolio" series. */
   series: PerformancePoint[];
+  /** Absolute market value per date, in AUD (for the $ view). Same dates as `series`. */
+  seriesValue: PerformancePoint[];
+  /** Currency of seriesValue (AUD). */
+  valueCurrency: string;
   tickers: string[];
   /** The range key this series was built for (e.g. "6M"). */
   range: string;

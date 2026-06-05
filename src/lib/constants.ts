@@ -25,6 +25,24 @@ export const POSITIONS: PositionInput[] = [
 /** Cash position tracked in app state (proceeds from the ARM sale live here). */
 export const CURRENT_CASH = 33541.78;
 
+/** Display currency for portfolio values & cash (US equities stay USD-priced). */
+export const DISPLAY_CURRENCY = "AUD";
+
+/**
+ * Real multi-currency cash balances (from the broker). Values are the AUD
+ * market value of each currency bucket (matching the broker's "Market Value"
+ * column), so they sum directly to total cash in AUD. Shown as a combined AUD
+ * total everywhere, with the per-currency breakdown in the dedicated Cash
+ * section. Edit here to update.
+ */
+export type CashCurrency = "AUD" | "EUR" | "GBP" | "USD";
+export const CASH_BALANCES: { currency: CashCurrency; amountAud: number }[] = [
+  { currency: "AUD", amountAud: 793.24 },
+  { currency: "EUR", amountAud: 115.65 },
+  { currency: "GBP", amountAud: 56.24 },
+  { currency: "USD", amountAud: 0 },
+];
+
 // ---------------------------------------------------------------------------
 // Portfolio rules
 // ---------------------------------------------------------------------------

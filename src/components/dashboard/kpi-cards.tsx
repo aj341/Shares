@@ -96,7 +96,7 @@ function PnlCard({
   portfolio: PortfolioResponse;
   pnlByPeriod: PnlByPeriod | null;
 }) {
-  const [period, setPeriod] = React.useState<PnlPeriod>("total");
+  const [period, setPeriod] = React.useState<PnlPeriod>("daily");
 
   const value =
     period === "total" || !pnlByPeriod

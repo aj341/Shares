@@ -13,7 +13,7 @@ import {
 import { TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { fetchPerformance } from "@/lib/client";
 import {
   DEFAULT_PERFORMANCE_RANGE,
@@ -78,10 +78,20 @@ export function PerformanceChart({
       .finally(() => setRangeLoading(false));
   }, []);
 
+  // "%" (rebased return) is the default; "$" shows absolute AUD value.
+  const [mode, setMode] = React.useState<"pct" | "value">("pct");
+
   const isDefault = range === DEFAULT_PERFORMANCE_RANGE;
   const active = isDefault ? data : override;
   const busy = isDefault ? loading : rangeLoading;
   const fmt = React.useMemo(() => makeFormatter(range), [range]);
+
+  const isValue = mode === "value";
+  const chartData = isValue ? active?.seriesValue ?? [] : active?.series ?? [];
+  const yTick = (v: number) =>
+    isValue ? formatCurrency(v, { compact: true }) : `${v > 0 ? "+" : ""}${v}%`;
+  const tipValue = (value: number) =>
+    isValue ? formatCurrency(value) : `${value > 0 ? "+" : ""}${value}%`;
 
   const title = active?.rangeLabel ?? "Performance";
 
@@ -95,11 +105,14 @@ export function PerformanceChart({
           </CardTitle>
           {active?.hasData ? (
             <span className="text-[11px] text-muted-foreground">
-              rebased · % return · via Mboum
+              {isValue ? "market value · A$" : "rebased · % return"} · via Mboum
             </span>
           ) : null}
         </div>
-        <RangeToggle value={range} onChange={selectRange} disabled={rangeLoading} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <RangeToggle value={range} onChange={selectRange} disabled={rangeLoading} />
+          <ModeToggle value={mode} onChange={setMode} />
+        </div>
       </CardHeader>
       <CardContent>
         {busy ? (
@@ -111,7 +124,7 @@ export function PerformanceChart({
             <Legend tickers={active.tickers} />
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={active.series} margin={{ top: 8, right: 12, left: -8, bottom: 0 }}>
+                <LineChart data={chartData} margin={{ top: 8, right: 12, left: -8, bottom: 0 }}>
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke="hsl(var(--border))"
@@ -126,18 +139,15 @@ export function PerformanceChart({
                     axisLine={false}
                   />
                   <YAxis
-                    tickFormatter={(v: number) => `${v > 0 ? "+" : ""}${v}%`}
+                    tickFormatter={yTick}
                     tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                    width={48}
+                    width={isValue ? 60 : 48}
                     tickLine={false}
                     axisLine={false}
                   />
                   <Tooltip
                     labelFormatter={(l) => fmt(String(l))}
-                    formatter={(value: number, name: string) => [
-                      `${value > 0 ? "+" : ""}${value}%`,
-                      name,
-                    ]}
+                    formatter={(value: number, name: string) => [tipValue(value), name]}
                     contentStyle={{
                       background: "hsl(var(--popover))",
                       border: "1px solid hsl(var(--border))",
@@ -204,6 +214,39 @@ function RangeToggle({
           )}
         >
           {r.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ModeToggle({
+  value,
+  onChange,
+}: {
+  value: "pct" | "value";
+  onChange: (m: "pct" | "value") => void;
+}) {
+  const opts: { key: "pct" | "value"; label: string }[] = [
+    { key: "pct", label: "%" },
+    { key: "value", label: "A$" },
+  ];
+  return (
+    <div className="flex rounded-lg bg-muted p-0.5">
+      {opts.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          onClick={() => onChange(o.key)}
+          aria-pressed={value === o.key}
+          className={cn(
+            "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
+            value === o.key
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {o.label}
         </button>
       ))}
     </div>

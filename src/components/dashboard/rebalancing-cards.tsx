@@ -3,7 +3,7 @@
 import { ArrowDownToLine, ArrowUpFromLine, Scissors, Target } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { cn, formatCurrency, formatPct } from "@/lib/utils";
+import { cn, formatCurrency, formatPct, formatUsd } from "@/lib/utils";
 import { signedTextClass } from "@/lib/ui";
 import type { Holding, RedistributionResponse } from "@/lib/types";
 
@@ -65,7 +65,7 @@ export function RebalancingCards({
                   {s.action} {s.ticker}
                 </Badge>
                 <span className="text-sm text-muted-foreground">
-                  — {s.shares} shares @ {formatCurrency(s.estimatedPrice)}
+                  — {s.shares} shares @ {formatUsd(s.estimatedPrice)}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -115,7 +115,7 @@ export function RebalancingCards({
                   </span>
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  @ {formatCurrency(b.estimatedPrice)}/share
+                  @ {formatUsd(b.estimatedPrice)}/share
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

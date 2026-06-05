@@ -3,7 +3,7 @@
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { cn, formatCurrency, formatPct } from "@/lib/utils";
+import { cn, formatPct, formatUsd } from "@/lib/utils";
 import { groupBySignal } from "@/lib/insights";
 import { signalToVariant } from "@/lib/ui";
 import { STATUS_LABELS } from "@/lib/constants";
@@ -96,7 +96,7 @@ function Group({
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="font-mono-nums text-sm font-medium">
-                    {formatCurrency(h.currentPrice)}
+                    {formatUsd(h.currentPrice)}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {up === null || up === undefined ? (
