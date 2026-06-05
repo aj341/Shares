@@ -85,6 +85,37 @@ export function signalFromScore(score: number): Signal {
 export const FINNHUB_BASE_URL = "https://finnhub.io/api/v1";
 export const MBOUM_BASE_URL = "https://api.mboum.com/v1";
 
+/**
+ * Selectable performance-chart ranges (client-safe). The server maps each key
+ * to a concrete Mboum interval + lookback window in `performance.ts`.
+ */
+export type PerformanceRangeKey =
+  | "1D"
+  | "1W"
+  | "2W"
+  | "1M"
+  | "3M"
+  | "6M"
+  | "1Y"
+  | "3Y"
+  | "5Y"
+  | "10Y";
+
+export const PERFORMANCE_RANGES: { key: PerformanceRangeKey; label: string }[] = [
+  { key: "1D", label: "1D" },
+  { key: "1W", label: "1W" },
+  { key: "2W", label: "2W" },
+  { key: "1M", label: "1M" },
+  { key: "3M", label: "3M" },
+  { key: "6M", label: "6M" },
+  { key: "1Y", label: "1Y" },
+  { key: "3Y", label: "3Y" },
+  { key: "5Y", label: "5Y" },
+  { key: "10Y", label: "10Y" },
+];
+
+export const DEFAULT_PERFORMANCE_RANGE: PerformanceRangeKey = "6M";
+
 /** Resolved data source. Falls back to mock when no Finnhub key is present. */
 export function resolveDataSource(): DataSource {
   const explicit = process.env.DATA_SOURCE?.toLowerCase();

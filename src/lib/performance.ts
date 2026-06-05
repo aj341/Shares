@@ -1,5 +1,10 @@
 import { getStockHistory, isMboumConfigured } from "@/lib/mboum";
+import type { MboumInterval } from "@/lib/mboum";
 import { getDerivedPortfolio } from "@/lib/portfolio-derivation";
+import {
+  DEFAULT_PERFORMANCE_RANGE,
+  type PerformanceRangeKey,
+} from "@/lib/constants";
 import type {
   DerivedPosition,
   PerformancePoint,
@@ -8,25 +13,60 @@ import type {
 } from "@/lib/types";
 
 /**
- * Builds the 6-month performance series + period P&L from real Mboum daily
- * history. Series is rebased to 0% at the start; each ticker line is its %
- * return and "Portfolio" is the share-weighted book's % return.
+ * Builds the performance series + period P&L from real Mboum history for a
+ * selectable range. Series is rebased to 0% at the start; each ticker line is
+ * its % return and "Portfolio" is the share-weighted book's % return.
  *
  * Period P&L (daily/weekly/monthly) compares the book's value now vs N trading
  * days ago using Mboum closes × current shares. Total P&L is vs cost basis.
+ * It is only meaningful on daily-interval ranges, so it's null otherwise.
  * If Mboum is unavailable we return hasData=false and the UI hides the chart —
  * we never fabricate price history.
  */
 
-const MONTHS_BACK = 6;
 const LOOKBACK = { daily: 1, weekly: 5, monthly: 21 };
 
-export async function buildPerformance(): Promise<PerformanceResponse> {
+type RangeSpec = {
+  interval: MboumInterval;
+  /** Lookback window; `days` wins over `monthsBack` when present. */
+  days?: number;
+  monthsBack?: number;
+  label: string;
+};
+
+const RANGE_CONFIG: Record<PerformanceRangeKey, RangeSpec> = {
+  "1D": { interval: "1h", days: 2, label: "1-Day Performance" },
+  "1W": { interval: "1d", days: 8, label: "1-Week Performance" },
+  "2W": { interval: "1d", days: 15, label: "2-Week Performance" },
+  "1M": { interval: "1d", monthsBack: 1, label: "1-Month Performance" },
+  "3M": { interval: "1d", monthsBack: 3, label: "3-Month Performance" },
+  "6M": { interval: "1d", monthsBack: 6, label: "6-Month Performance" },
+  "1Y": { interval: "1d", monthsBack: 12, label: "1-Year Performance" },
+  "3Y": { interval: "1wk", monthsBack: 36, label: "3-Year Performance" },
+  "5Y": { interval: "1wk", monthsBack: 60, label: "5-Year Performance" },
+  "10Y": { interval: "1mo", monthsBack: 120, label: "10-Year Performance" },
+};
+
+function resolveRange(range?: string): {
+  key: PerformanceRangeKey;
+  spec: RangeSpec;
+} {
+  const key = (range && range in RANGE_CONFIG
+    ? range
+    : DEFAULT_PERFORMANCE_RANGE) as PerformanceRangeKey;
+  return { key, spec: RANGE_CONFIG[key] };
+}
+
+export async function buildPerformance(
+  range?: string
+): Promise<PerformanceResponse> {
   const asOf = new Date().toISOString();
+  const { key, spec } = resolveRange(range);
   const empty: PerformanceResponse = {
     series: [],
     tickers: [],
-    rangeLabel: `${MONTHS_BACK}-Month Performance`,
+    range: key,
+    rangeLabel: spec.label,
     hasData: false,
     source: "none",
     pnlByPeriod: null,
@@ -42,8 +82,9 @@ export async function buildPerformance(): Promise<PerformanceResponse> {
     positions.map(async (p) => ({
       position: p,
       candles: await getStockHistory(p.ticker, {
-        interval: "1d",
-        monthsBack: MONTHS_BACK,
+        interval: spec.interval,
+        days: spec.days,
+        monthsBack: spec.monthsBack,
       }),
     }))
   );
@@ -107,10 +148,12 @@ export async function buildPerformance(): Promise<PerformanceResponse> {
   return {
     series,
     tickers,
-    rangeLabel: `${MONTHS_BACK}-Month Performance`,
+    range: key,
+    rangeLabel: spec.label,
     hasData: true,
     source: "mboum",
-    pnlByPeriod: computePnl(usable, bookByDate),
+    // Period P&L uses daily-bar lookbacks, so it's only meaningful on daily ranges.
+    pnlByPeriod: spec.interval === "1d" ? computePnl(usable, bookByDate) : null,
     asOf,
   };
 }

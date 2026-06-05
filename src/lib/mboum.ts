@@ -93,15 +93,28 @@ function num(v: RawNum): number | null {
   return typeof v.raw === "number" && Number.isFinite(v.raw) ? v.raw : null;
 }
 
+export type MboumInterval = "1h" | "1d" | "1wk" | "1mo";
+
+type HistoryOpts = {
+  interval?: MboumInterval;
+  /** Trim to the most recent N months. Ignored when `days` is given. */
+  monthsBack?: number;
+  /** Trim to the most recent N days (takes precedence over monthsBack). */
+  days?: number;
+};
+
 /**
- * Daily price history, ascending by date. `monthsBack` trims the series to a
- * recent window (default ~6 months). Returns [] on failure.
+ * Price history, ascending by date. Trims the series to a recent window via
+ * `days` (preferred for short/intraday ranges) or `monthsBack` (default ~6
+ * months). Drops any non-positive / non-finite closes so a stale or
+ * in-progress zero-value bar can't rebase the whole series to -100%.
+ * Returns [] on failure.
  */
 export async function getStockHistory(
   symbol: string,
-  opts: { interval?: "1d" | "1wk"; monthsBack?: number } = {}
+  opts: HistoryOpts = {}
 ): Promise<MboumCandle[]> {
-  const { interval = "1d", monthsBack = 6 } = opts;
+  const { interval = "1d", monthsBack = 6, days } = opts;
   const data = await safe(() =>
     mboumGet<MboumHistoryResponse>("/markets/stock/history", {
       symbol,
@@ -111,10 +124,18 @@ export async function getStockHistory(
   );
   if (!data?.body) return [];
 
-  const cutoff = Math.floor(Date.now() / 1000) - monthsBack * 31 * 24 * 60 * 60;
+  const windowSecs =
+    (days != null ? days : monthsBack * 31) * 24 * 60 * 60;
+  const cutoff = Math.floor(Date.now() / 1000) - windowSecs;
 
   return Object.values(data.body)
-    .filter((c) => c && Number.isFinite(c.close) && c.date_utc >= cutoff)
+    .filter(
+      (c) =>
+        c &&
+        Number.isFinite(c.close) &&
+        c.close > 0 &&
+        c.date_utc >= cutoff
+    )
     .map((c) => ({
       date: c.date,
       dateUtc: c.date_utc,
@@ -131,7 +152,7 @@ export async function getStockHistory(
  */
 export function getHistoricalPrices(
   symbol: string,
-  rangeOrOpts: number | { interval?: "1d" | "1wk"; monthsBack?: number } = 6
+  rangeOrOpts: number | HistoryOpts = 6
 ): Promise<MboumCandle[]> {
   const opts =
     typeof rangeOrOpts === "number" ? { monthsBack: rangeOrOpts } : rangeOrOpts;

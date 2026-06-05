@@ -31,8 +31,9 @@ export function fetchDashboard(): Promise<DashboardResponse> {
   return getJson<DashboardResponse>("/api/dashboard");
 }
 
-export function fetchPerformance(): Promise<PerformanceResponse> {
-  return getJson<PerformanceResponse>("/api/performance");
+export function fetchPerformance(range?: string): Promise<PerformanceResponse> {
+  const qs = range ? `?range=${encodeURIComponent(range)}` : "";
+  return getJson<PerformanceResponse>(`/api/performance${qs}`);
 }
 
 export function fetchStocks(): Promise<StocksResponse> {

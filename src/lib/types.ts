@@ -237,6 +237,8 @@ export type PerformanceResponse = {
   /** Rebased to 0% at the start of the window. Includes a "Portfolio" series. */
   series: PerformancePoint[];
   tickers: string[];
+  /** The range key this series was built for (e.g. "6M"). */
+  range: string;
   rangeLabel: string;
   hasData: boolean;
   /** "mboum" when real history loaded, "none" when unavailable. */

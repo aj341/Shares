@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import {
   CartesianGrid,
   Line,
@@ -12,6 +13,13 @@ import {
 import { TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { fetchPerformance } from "@/lib/client";
+import {
+  DEFAULT_PERFORMANCE_RANGE,
+  PERFORMANCE_RANGES,
+  type PerformanceRangeKey,
+} from "@/lib/constants";
 import type { PerformanceResponse } from "@/lib/types";
 
 const PALETTE = [
@@ -24,10 +32,21 @@ const PALETTE = [
   "hsl(174 55% 48%)",
 ];
 
-function shortDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-AU", { month: "short", day: "2-digit" });
+const INTRADAY: PerformanceRangeKey[] = ["1D"];
+const LONG: PerformanceRangeKey[] = ["3Y", "5Y", "10Y"];
+
+/** Date/time tick formatter that adapts to the selected range. */
+function makeFormatter(range: PerformanceRangeKey) {
+  const opts: Intl.DateTimeFormatOptions = INTRADAY.includes(range)
+    ? { hour: "2-digit", minute: "2-digit" }
+    : LONG.includes(range)
+    ? { month: "short", year: "2-digit" }
+    : { month: "short", day: "2-digit" };
+  return (value: string): string => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleDateString("en-AU", opts).replace(",", "");
+  };
 }
 
 export function PerformanceChart({
@@ -37,32 +56,62 @@ export function PerformanceChart({
   data: PerformanceResponse | null;
   loading: boolean;
 }) {
-  const title = data?.rangeLabel ?? "6-Month Performance";
+  const [range, setRange] = React.useState<PerformanceRangeKey>(
+    DEFAULT_PERFORMANCE_RANGE
+  );
+  // Series for non-default ranges, fetched on demand. The default range uses
+  // the `data` prop the shell already loaded (and which also feeds the KPIs).
+  const [override, setOverride] = React.useState<PerformanceResponse | null>(null);
+  const [rangeLoading, setRangeLoading] = React.useState(false);
+
+  const selectRange = React.useCallback((key: PerformanceRangeKey) => {
+    setRange(key);
+    if (key === DEFAULT_PERFORMANCE_RANGE) {
+      setOverride(null);
+      return;
+    }
+    setRangeLoading(true);
+    setOverride(null);
+    fetchPerformance(key)
+      .then((res) => setOverride(res))
+      .catch(() => setOverride(null))
+      .finally(() => setRangeLoading(false));
+  }, []);
+
+  const isDefault = range === DEFAULT_PERFORMANCE_RANGE;
+  const active = isDefault ? data : override;
+  const busy = isDefault ? loading : rangeLoading;
+  const fmt = React.useMemo(() => makeFormatter(range), [range]);
+
+  const title = active?.rangeLabel ?? "Performance";
 
   return (
     <Card className="h-full">
-      <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          {title}
-        </CardTitle>
-        {data?.hasData ? (
-          <span className="text-[11px] text-muted-foreground">
-            rebased · % return · via Mboum
-          </span>
-        ) : null}
+      <CardHeader className="space-y-2 pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            {title}
+          </CardTitle>
+          {active?.hasData ? (
+            <span className="text-[11px] text-muted-foreground">
+              rebased · % return · via Mboum
+            </span>
+          ) : null}
+        </div>
+        <RangeToggle value={range} onChange={selectRange} disabled={rangeLoading} />
       </CardHeader>
       <CardContent>
-        {loading ? (
+        {busy ? (
           <Skeleton className="h-[280px] w-full" />
-        ) : !data?.hasData ? (
+        ) : !active?.hasData ? (
           <EmptyChart />
         ) : (
           <>
-            <Legend tickers={data.tickers} />
+            <Legend tickers={active.tickers} />
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data.series} margin={{ top: 8, right: 12, left: -8, bottom: 0 }}>
+                <LineChart data={active.series} margin={{ top: 8, right: 12, left: -8, bottom: 0 }}>
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke="hsl(var(--border))"
@@ -70,7 +119,7 @@ export function PerformanceChart({
                   />
                   <XAxis
                     dataKey="date"
-                    tickFormatter={shortDate}
+                    tickFormatter={fmt}
                     tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
                     minTickGap={48}
                     tickLine={false}
@@ -84,7 +133,7 @@ export function PerformanceChart({
                     axisLine={false}
                   />
                   <Tooltip
-                    labelFormatter={(l) => shortDate(String(l))}
+                    labelFormatter={(l) => fmt(String(l))}
                     formatter={(value: number, name: string) => [
                       `${value > 0 ? "+" : ""}${value}%`,
                       name,
@@ -97,7 +146,7 @@ export function PerformanceChart({
                       color: "hsl(var(--popover-foreground))",
                     }}
                   />
-                  {data.tickers.map((t, i) => (
+                  {active.tickers.map((t, i) => (
                     <Line
                       key={t}
                       type="monotone"
@@ -125,6 +174,39 @@ export function PerformanceChart({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function RangeToggle({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: PerformanceRangeKey;
+  onChange: (key: PerformanceRangeKey) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {PERFORMANCE_RANGES.map((r) => (
+        <button
+          key={r.key}
+          type="button"
+          onClick={() => onChange(r.key)}
+          disabled={disabled}
+          aria-pressed={value === r.key}
+          className={cn(
+            "rounded-md px-2 py-0.5 text-[11px] font-medium font-mono-nums transition-colors",
+            "disabled:opacity-50",
+            value === r.key
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+        >
+          {r.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -172,8 +254,8 @@ function EmptyChart() {
     <div className="flex h-[280px] flex-col items-center justify-center gap-1 text-center">
       <p className="text-sm font-medium">Performance history unavailable</p>
       <p className="max-w-xs text-xs text-muted-foreground">
-        Set <code>MBOUM_API_KEY</code> to load 6-month price history. Quotes and
-        scoring continue to work without it.
+        Set <code>MBOUM_API_KEY</code> to load price history, or this range has no
+        data. Quotes and scoring continue to work without it.
       </p>
     </div>
   );

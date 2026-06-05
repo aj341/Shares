@@ -1,13 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { buildPerformance } from "@/lib/performance";
 import type { ApiError } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** 6-month price-history performance series (Mboum-backed). */
-export async function GET() {
+/** Price-history performance series (Mboum-backed). `?range=` picks the window. */
+export async function GET(req: NextRequest) {
   try {
-    const performance = await buildPerformance();
+    const range = req.nextUrl.searchParams.get("range") ?? undefined;
+    const performance = await buildPerformance(range);
     return NextResponse.json(performance);
   } catch (err) {
     const body: ApiError = {
