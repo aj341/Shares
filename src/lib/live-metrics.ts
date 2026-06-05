@@ -6,6 +6,8 @@ import {
   getStockHistory,
   isMboumConfigured,
 } from "@/lib/mboum";
+import { getEarningsSurprise } from "@/lib/earnings";
+import { getValuationContext } from "@/lib/valuation";
 import { METRIC_DEFS } from "@/lib/mock-data";
 import type { Metric, StatusTone } from "@/lib/types";
 
@@ -94,11 +96,13 @@ export async function computeLiveMetrics(
   const cached = CACHE.get(ticker);
   if (cached && Date.now() - cached.ts < TTL_MS) return cached.metrics;
 
-  const [candles, targets, stats, fin] = await Promise.all([
+  const [candles, targets, stats, fin, earnings, valCtx] = await Promise.all([
     getStockHistory(ticker, { interval: "1d", monthsBack: 13 }),
     getPriceTargets(ticker),
     getKeyStats(ticker),
     getFinancials(ticker),
+    getEarningsSurprise(ticker),
+    getValuationContext(ticker),
   ]);
 
   const closes = candles.map((c) => c.close);
@@ -122,7 +126,6 @@ export async function computeLiveMetrics(
   const range52 = high52 - low52 || 1;
   const pos52 = (price - low52) / range52;
   const ret10 = closes.length > 11 ? price / closes[closes.length - 11] - 1 : 0;
-  const ret126 = closes.length > 126 ? price / closes[closes.length - 127] - 1 : 0;
   const vol = annualisedVol(closes, 30);
   const mdd = maxDrawdown(closes.slice(-126));
   const upside = targets?.upsidePct ?? null;
@@ -177,20 +180,16 @@ export async function computeLiveMetrics(
     upside != null
       ? [pct(upside / 100), upside >= 8 ? "positive" : upside < 0 ? "negative" : "neutral"]
       : ["—", "neutral"],
-    // 9 — valuation band (P/E proxy)
-    pe != null
-      ? [`P/E ${pe.toFixed(1)}`, pe < 25 ? "positive" : pe > 45 ? "negative" : "neutral"]
-      : ["—", "neutral"],
-    // 10 — earnings surprise trend (not sourced yet → neutral)
-    ["n/a", "neutral"],
-    // 11 — multiple expansion vs growth
-    pe != null && revGrowth != null
-      ? ret126 > revGrowth + 0.2
-        ? ["Expanding", "negative"]
-        : ret126 < revGrowth - 0.1
-          ? ["Compressing", "positive"]
-          : ["Stable", "neutral"]
-      : ["Stable", "neutral"],
+    // 9 — valuation band vs peers/history (live PEG/PE)
+    valCtx
+      ? valCtx.band
+      : pe != null
+        ? [`P/E ${pe.toFixed(1)}`, pe < 25 ? "positive" : pe > 45 ? "negative" : "neutral"]
+        : ["—", "neutral"],
+    // 10 — earnings surprise trend (live Finnhub actual vs estimate)
+    earnings != null ? [earnings.value, earnings.status] : ["n/a", "neutral"],
+    // 11 — multiple expansion/compression (forward vs trailing P/E)
+    valCtx ? valCtx.multiple : ["Stable", "neutral"],
     // 12 — revenue growth trend
     revGrowth != null
       ? [pct(revGrowth), revGrowth >= 0.1 ? "positive" : revGrowth < 0 ? "negative" : "neutral"]

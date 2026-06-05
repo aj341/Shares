@@ -11,6 +11,7 @@ import { getMockMetrics, MOCK_QUOTES } from "@/lib/mock-data";
 import { getDerivedPortfolio } from "@/lib/portfolio-derivation";
 import { computeLiveMetrics } from "@/lib/live-metrics";
 import { buildLiveVerdict } from "@/lib/verdict";
+import { enhanceVerdict, getCachedEnhancedVerdict } from "@/lib/verdict-llm";
 import { isMboumConfigured } from "@/lib/mboum";
 import * as finnhub from "@/lib/finnhub";
 import type {
@@ -20,6 +21,7 @@ import type {
   Holding,
   Metric,
   PortfolioResponse,
+  StockVerdict,
 } from "@/lib/types";
 
 /**
@@ -137,10 +139,35 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       minAnnouncementImpact: minAnnouncementImpact(announcements),
     });
 
-    // Verdict derived from the live metrics + news when real data is present.
-    const verdict = liveMetrics
-      ? buildLiveVerdict({ ticker: b.position.ticker, metrics, score, signal, announcements })
-      : getVerdict(b.position.ticker);
+    // Verdict derived from live metrics + news; if a cached Claude-deepened
+    // verdict exists use it, otherwise serve the deterministic one now and warm
+    // the LLM cache in the background (non-blocking) for the next build.
+    let verdict: StockVerdict;
+    if (liveMetrics) {
+      const base = buildLiveVerdict({
+        ticker: b.position.ticker,
+        metrics,
+        score,
+        signal,
+        announcements,
+      });
+      const cached = getCachedEnhancedVerdict(b.position.ticker, score);
+      if (cached) {
+        verdict = cached;
+      } else {
+        verdict = base;
+        void enhanceVerdict({
+          ticker: b.position.ticker,
+          metrics,
+          score,
+          signal,
+          announcements,
+          base,
+        }).catch(() => {});
+      }
+    } else {
+      verdict = getVerdict(b.position.ticker);
+    }
 
     return {
       ticker: b.position.ticker,
