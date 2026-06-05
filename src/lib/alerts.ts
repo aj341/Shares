@@ -1,6 +1,7 @@
 import "server-only";
 import { buildPortfolio } from "@/lib/portfolio";
 import { ensureSnapshotSchema } from "@/lib/backtest";
+import { buildWatchlist } from "@/lib/watchlist";
 import { isDatabaseConfigured, query } from "@/lib/db";
 import type { Holding, PortfolioAlert } from "@/lib/types";
 
@@ -49,9 +50,10 @@ async function getPriorSignals(): Promise<Map<string, string>> {
 }
 
 export async function computeAlerts(): Promise<PortfolioAlert[]> {
-  const [portfolio, priorSignals] = await Promise.all([
+  const [portfolio, priorSignals, watchlist] = await Promise.all([
     buildPortfolio(),
     getPriorSignals(),
+    buildWatchlist().catch(() => null),
   ]);
 
   const alerts: PortfolioAlert[] = [];
@@ -106,6 +108,21 @@ export async function computeAlerts(): Promise<PortfolioAlert[]> {
           1
         )}% of the portfolio — near/over the ${POSITION_CAP_PCT}% cap.`,
         severity: holding.portfolioWeight >= 35 ? "critical" : "warning",
+      });
+    }
+  }
+
+  // 5. Watchlist entry triggers — candidates sitting in the "best entry" bucket
+  //    (e.g. pulled back / near oversold) are worth a look.
+  for (const item of watchlist?.items ?? []) {
+    if (item.bucket === "best_entry") {
+      alerts.push({
+        ticker: item.ticker,
+        kind: "watchlist_entry",
+        message: `${item.ticker} (watchlist) in entry zone — ${item.signalLabel}${
+          item.rsi != null ? `, RSI ${item.rsi}` : ""
+        }${item.upsidePct != null ? `, ${Math.round(item.upsidePct)}% upside` : ""}.`,
+        severity: "info",
       });
     }
   }

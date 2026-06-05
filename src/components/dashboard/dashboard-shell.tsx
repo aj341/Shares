@@ -32,6 +32,7 @@ import { AlertsBanner } from "@/components/dashboard/alerts-banner";
 import { SignalPerformance } from "@/components/dashboard/signal-performance";
 import { EventsRadar } from "@/components/dashboard/events-radar";
 import { PortfolioRisk } from "@/components/dashboard/portfolio-risk";
+import { ProvidersBadge } from "@/components/dashboard/providers-badge";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
 import { AnnouncementsFeed } from "@/components/dashboard/announcements-feed";
 import { DisagreementScorecard } from "@/components/dashboard/disagreement-scorecard";
@@ -160,6 +161,7 @@ export function DashboardShell() {
     <div className="min-h-screen">
       <Header
         source={state.status === "ready" ? state.data.source : undefined}
+        asOf={state.status === "ready" ? state.data.asOf : undefined}
         onRefresh={refreshAll}
         loading={state.status === "loading"}
       />
@@ -200,13 +202,18 @@ export function DashboardShell() {
 
 function Header({
   source,
+  asOf,
   onRefresh,
   loading,
 }: {
   source?: string;
+  asOf?: string;
   onRefresh: () => void;
   loading: boolean;
 }) {
+  const freshness = asOf
+    ? new Date(asOf).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })
+    : null;
   return (
     <header className="sticky top-0 z-30 border-b border-border/60 bg-background/70 backdrop-blur-xl">
       <div className="container mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 lg:px-8">
@@ -221,9 +228,14 @@ function Header({
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <LiveClock />
+          <ProvidersBadge />
           {source ? (
-            <Badge variant={source === "mock" ? "warning" : "positive"}>
+            <Badge
+              variant={source === "mock" ? "warning" : "positive"}
+              title={freshness ? `Data as of ${freshness}` : undefined}
+            >
               {source === "mock" ? "Mock data" : `Live · ${source}`}
+              {freshness ? ` · ${freshness}` : ""}
             </Badge>
           ) : null}
           <Button

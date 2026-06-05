@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Bell,
   ChevronDown,
+  Eye,
   Newspaper,
   TrendingDown,
   X,
@@ -20,6 +21,7 @@ const KIND_ICON: Record<PortfolioAlert["kind"], typeof Bell> = {
   rsi_extreme: AlertTriangle,
   high_impact_news: Newspaper,
   near_cap: Layers,
+  watchlist_entry: Eye,
 };
 
 const SEV_RANK: Record<PortfolioAlert["severity"], number> = {

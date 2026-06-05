@@ -139,7 +139,13 @@ function technicalSignal(bucket: WatchlistBucket, rsi: number | null): string {
   return `RSI ${rsi} — mid-range; no momentum extreme, healthy reset territory.`;
 }
 
+// 15-min cache so /api/watchlist and /api/alerts (entry-trigger check) reuse
+// one computation rather than re-fetching 8 tickers of Mboum data each call.
+let WL_CACHE: { data: WatchlistResponse; ts: number } | null = null;
+const WL_TTL_MS = 15 * 60 * 1000;
+
 export async function buildWatchlist(): Promise<WatchlistResponse> {
+  if (WL_CACHE && Date.now() - WL_CACHE.ts < WL_TTL_MS) return WL_CACHE.data;
   const asOf = new Date().toISOString();
   if (!isMboumConfigured()) {
     return {
@@ -197,7 +203,7 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
     ? Math.round((upsides.reduce((s, u) => s + u, 0) / upsides.length) * 10) / 10
     : null;
 
-  return {
+  const result: WatchlistResponse = {
     items,
     suggestionsCount: items.length,
     avgUpsidePct,
@@ -205,4 +211,6 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
     asOf,
     source: "mboum",
   };
+  WL_CACHE = { data: result, ts: Date.now() };
+  return result;
 }

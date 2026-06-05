@@ -451,7 +451,12 @@ export type ArticleImpactAnalysis = {
 
 export type PortfolioAlert = {
   ticker: string;
-  kind: "signal_change" | "rsi_extreme" | "high_impact_news" | "near_cap";
+  kind:
+    | "signal_change"
+    | "rsi_extreme"
+    | "high_impact_news"
+    | "near_cap"
+    | "watchlist_entry";
   message: string;
   severity: "info" | "warning" | "critical";
 };
