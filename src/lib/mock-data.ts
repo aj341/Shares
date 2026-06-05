@@ -30,6 +30,7 @@ export const MOCK_QUOTES: Record<
   MSFT: { currentPrice: 498.12, dayChangePct: 0.84 },
   RBLX: { currentPrice: 74.6, dayChangePct: -2.1 },
   GOOGL: { currentPrice: 372.05, dayChangePct: 1.22 },
+  GOOG: { currentPrice: 373.46, dayChangePct: 1.2 },
   PLTR: { currentPrice: 168.9, dayChangePct: 3.45 },
   MDB: { currentPrice: 341.18, dayChangePct: -1.4 },
   NBIS: { currentPrice: 245.7, dayChangePct: 2.05 },
@@ -39,6 +40,7 @@ export const MOCK_ANALYST: Record<string, AnalystView> = {
   MSFT: { consensus: "bullish", targetUpsidePct: 11.4 },
   RBLX: { consensus: "mixed", targetUpsidePct: 18.2 },
   GOOGL: { consensus: "bullish", targetUpsidePct: 9.1 },
+  GOOG: { consensus: "bullish", targetUpsidePct: 9.1 },
   PLTR: { consensus: "mixed", targetUpsidePct: -6.5 },
   MDB: { consensus: "neutral", targetUpsidePct: 14.0 },
   NBIS: { consensus: "bullish", targetUpsidePct: 22.7 },
@@ -275,6 +277,15 @@ const METRIC_TABLE: Record<string, Cell[]> = {
     ["Low", "positive"], ["Shallow", "positive"], ["13.4%", "positive"],
     ["Positive", "positive"], ["Upward", "positive"],
   ],
+  // Class C (GOOG) tracks the same underlying business as Class A (GOOGL).
+  GOOG: [
+    ["+1.6%", "positive"], ["+5.1%", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
+    [58, "positive"], ["Bullish cross", "positive"], ["1.0x avg", "neutral"], ["+3.0%", "positive"],
+    ["+9.1%", "positive"], ["Below history", "positive"], ["3 beats", "positive"], ["Stable", "neutral"],
+    ["+13% YoY", "positive"], ["Expanding", "positive"], ["Net cash", "positive"],
+    ["Low", "positive"], ["Shallow", "positive"], ["13.4%", "positive"],
+    ["Positive", "positive"], ["Upward", "positive"],
+  ],
   PLTR: [
     ["+3.4%", "positive"], ["+8.9%", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
     [79, "negative"], ["Bullish cross", "positive"], ["1.6x avg", "positive"], ["+22.0%", "positive"],
@@ -366,6 +377,28 @@ export const MOCK_ANNOUNCEMENTS: Record<string, Announcement[]> = {
     },
   ],
   GOOGL: [
+    {
+      date: "2026-05-22",
+      title: "Gemini enterprise adoption and Cloud backlog at record",
+      source: "Alphabet IR",
+      type: "product",
+      summary:
+        "Management highlighted record Cloud backlog and accelerating Gemini enterprise seats, reinforcing the AI-monetisation thesis.",
+      impact: "positive",
+      impactScore: 2,
+    },
+    {
+      date: "2026-04-24",
+      title: "Q1 earnings beat; first-ever capital return increase",
+      source: "Press release",
+      type: "earnings",
+      summary:
+        "Search and Cloud both beat; buyback expanded. Regulatory overhang acknowledged but no new adverse ruling.",
+      impact: "positive",
+      impactScore: 2,
+    },
+  ],
+  GOOG: [
     {
       date: "2026-05-22",
       title: "Gemini enterprise adoption and Cloud backlog at record",
@@ -525,6 +558,35 @@ export const MOCK_VERDICTS: Record<string, StockVerdict> = {
     },
   },
   GOOGL: {
+    summaryBullets: [
+      "Search resilient; Cloud backlog at record with Gemini momentum.",
+      "Beat-and-raise with expanded capital return.",
+      "Valuation still reasonable versus history.",
+    ],
+    verdict: "positive",
+    impactScore: 2,
+    thesisUpdate: "Thesis intact — AI monetisation fears continue to ease.",
+    marketReactionView: "Reaction positive and fundamentally supported.",
+    actionHint: "hold",
+    execCommentary: {
+      hasExecComments: true,
+      tone: "aligned",
+      keyPoints: [
+        "Management quantified Cloud backlog and Gemini adoption.",
+        "Measured tone on regulatory risk.",
+      ],
+    },
+    factAlignment: {
+      financialsSupportStory: "yes",
+      notes: "Cloud/Search results corroborate the AI-monetisation narrative.",
+    },
+    researchStatus: {
+      ourResearchComplete: "yes",
+      recommendedFollowUp: ["Track antitrust remedy timelines for tail risk."],
+    },
+  },
+  // Class C (GOOG) shares the Class A (GOOGL) thesis — same business, non-voting.
+  GOOG: {
     summaryBullets: [
       "Search resilient; Cloud backlog at record with Gemini momentum.",
       "Beat-and-raise with expanded capital return.",

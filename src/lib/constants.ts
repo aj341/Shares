@@ -16,7 +16,7 @@ export type PositionInput = {
 export const POSITIONS: PositionInput[] = [
   { ticker: "MSFT", companyName: "Microsoft Corporation", shares: 15, entryPrice: 461.44 },
   { ticker: "RBLX", companyName: "Roblox Corporation", shares: 30, entryPrice: 89.95 },
-  { ticker: "GOOGL", companyName: "Alphabet Inc. (Class A)", shares: 50, entryPrice: 351.37 },
+  { ticker: "GOOG", companyName: "Alphabet Inc. (Class C)", shares: 50, entryPrice: 351.37 },
   { ticker: "PLTR", companyName: "Palantir Technologies Inc.", shares: 60, entryPrice: 135.66 },
   { ticker: "MDB", companyName: "MongoDB, Inc.", shares: 20, entryPrice: 372.24 },
   { ticker: "NBIS", companyName: "Nebius Group N.V.", shares: 100, entryPrice: 217.04 },
