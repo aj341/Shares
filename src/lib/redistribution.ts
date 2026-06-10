@@ -74,9 +74,25 @@ function trimShares(h: Holding): number {
   return raw;
 }
 
+/** A screened watchlist name proposed as a brand-new position. */
+export type NewPositionCandidate = {
+  ticker: string;
+  companyName: string;
+  priceUsd: number;
+  rationale: string;
+};
+
+const MAX_NEW_POSITIONS = 2;
+const NEW_POSITION_MAX_WEIGHT = 0.08; // starter size: ≤8% of the book each
+
 export function buildRedistribution(
   portfolio: PortfolioResponse,
-  opts: { targetCashBufferPct?: number; regimeLabel?: string } = {}
+  opts: {
+    targetCashBufferPct?: number;
+    regimeLabel?: string;
+    /** Watchlist screen candidates (caller omits these in risk-off regimes). */
+    newPositionCandidates?: NewPositionCandidate[];
+  } = {}
 ): RedistributionResponse {
   const { holdings, cash, totalPortfolioValue } = portfolio;
   // Regime-aware dynamic buffer (defaults to the static rule).
@@ -190,6 +206,39 @@ export function buildRedistribution(
     });
   }
 
+  // --- Phase 3b: NEW positions from the watchlist screen. Existing holdings
+  // get first call on capital; leftover cash above the buffer can open up to
+  // two starter positions in screened names when they rank better than
+  // topping up the current book. Callers omit candidates in risk-off regimes.
+  const newPositions: { ticker: string; companyName: string; mv: number }[] = [];
+  for (const cand of opts.newPositionCandidates ?? []) {
+    if (newPositions.length >= MAX_NEW_POSITIONS) break;
+    if (availableToInvest < minTradeSize) break;
+    if (cand.priceUsd <= 0 || mvAfter.has(cand.ticker)) continue;
+    const budget = Math.min(
+      availableToInvest,
+      totalPortfolioValue * NEW_POSITION_MAX_WEIGHT
+    );
+    const shares = Math.floor(budget / cand.priceUsd);
+    if (shares <= 0) continue;
+    const cost = shares * cand.priceUsd;
+    if (cost < minTradeSize) continue;
+
+    availableToInvest -= cost;
+    totalInvested += cost;
+    mvAfter.set(cand.ticker, cost);
+    newPositions.push({ ticker: cand.ticker, companyName: cand.companyName, mv: cost });
+
+    recommendations.push({
+      action: "BUY",
+      ticker: cand.ticker,
+      shares,
+      estimatedPrice: round2(cand.priceUsd),
+      estimatedProceedsOrCost: round2(cost),
+      rationale: `New position (watchlist screen) — ${cand.rationale}`,
+    });
+  }
+
   // --- After snapshot. ---
   const newCashBalance = cash + totalProceeds - totalInvested;
   const after: AllocationSnapshot[] = [];
@@ -204,6 +253,14 @@ export function buildRedistribution(
       companyName: h.companyName,
       marketValue: round2(mv),
       weight: round2(newTotal > 0 ? (mv / newTotal) * 100 : 0),
+    });
+  }
+  for (const np of newPositions) {
+    after.push({
+      ticker: np.ticker,
+      companyName: np.companyName,
+      marketValue: round2(np.mv),
+      weight: round2(newTotal > 0 ? (np.mv / newTotal) * 100 : 0),
     });
   }
   after.push({

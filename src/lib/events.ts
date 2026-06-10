@@ -197,6 +197,48 @@ async function fetchDividends(
 }
 
 // ---------------------------------------------------------------------------
+// Past-window earnings (additive export, used by earnings-risk.ts)
+// ---------------------------------------------------------------------------
+
+export type PastEarningsReport = {
+  /** Report date YYYY-MM-DD. */
+  date: string;
+  /** Finnhub report hour: "bmo" | "amc" | "dmh" | "" (unknown). */
+  hour: string;
+};
+
+/**
+ * Past earnings report dates for a ticker over an arbitrary window. Same
+ * Finnhub /calendar/earnings endpoint — querying with past dates returns
+ * historical report rows. Sorted ascending by date. Empty array when no key
+ * is configured or the request fails.
+ */
+export async function getPastEarningsReports(
+  ticker: string,
+  from: string,
+  to: string
+): Promise<PastEarningsReport[]> {
+  const token = getApiKey();
+  const symbol = ticker.trim().toUpperCase();
+  if (!token || !symbol) return [];
+
+  const data = await safe<EarningsResponse>(
+    () =>
+      finnhubGet<EarningsResponse>(
+        "/calendar/earnings",
+        { symbol, from, to },
+        token
+      ),
+    {}
+  );
+
+  return (data.earningsCalendar ?? [])
+    .filter((row) => Boolean(row?.date))
+    .map((row) => ({ date: row.date, hour: row.hour ?? "" }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 

@@ -3,6 +3,7 @@ import { buildPortfolio } from "@/lib/portfolio";
 import { ensureSnapshotSchema } from "@/lib/backtest";
 import { buildWatchlist } from "@/lib/watchlist";
 import { getUpcomingEvents } from "@/lib/events";
+import { getHistoricalEarningsMoves } from "@/lib/earnings-risk";
 import { isDatabaseConfigured, query } from "@/lib/db";
 import type { Holding, PortfolioAlert } from "@/lib/types";
 
@@ -129,10 +130,24 @@ export async function computeAlerts(): Promise<PortfolioAlert[]> {
           : earnings.daysAway === 1
           ? "tomorrow"
           : `in ${earnings.daysAway} days`;
+
+      // Historical event-risk: avg post-earnings move x position size.
+      // Only fetched for holdings inside the alert window (right here), and
+      // the alert still fires unchanged when history is unavailable.
+      let risk = "";
+      const moveStats = await getHistoricalEarningsMoves(holding.ticker).catch(
+        () => null
+      );
+      if (moveStats) {
+        const riskAud =
+          (moveStats.avgAbsMovePct / 100) * valueAud;
+        risk = ` Historically moves ±${moveStats.avgAbsMovePct.toFixed(1)}% on earnings (last ${moveStats.samples} prints) — that's ±A$${Math.round(riskAud).toLocaleString("en-AU")} at current size.`;
+      }
+
       alerts.push({
         ticker: holding.ticker,
         kind: "earnings_imminent",
-        message: `${holding.ticker} reports earnings ${when} (${earnings.detail}). Position is ${holding.portfolioWeight.toFixed(1)}% of the book (≈A$${Math.round(valueAud).toLocaleString("en-AU")}).`,
+        message: `${holding.ticker} reports earnings ${when} (${earnings.detail}). Position is ${holding.portfolioWeight.toFixed(1)}% of the book (≈A$${Math.round(valueAud).toLocaleString("en-AU")}).${risk}`,
         severity: earnings.daysAway <= 2 ? "warning" : "info",
       });
     }

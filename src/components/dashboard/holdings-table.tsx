@@ -127,26 +127,27 @@ export function HoldingsTable({
             <TableCell
               className={cn(
                 "text-right font-mono-nums font-semibold",
-                scoreColorClass(h.score)
+                h.dataQuality === "degraded"
+                  ? "text-muted-foreground"
+                  : scoreColorClass(h.score)
               )}
             >
-              {h.score}
+              {h.dataQuality === "degraded" ? "—" : h.score}
             </TableCell>
             <TableCell>
-              <span className="inline-flex items-center gap-1">
+              {h.dataQuality === "degraded" ? (
+                <Badge
+                  variant="negative"
+                  className="text-[9px]"
+                  title="Live data unavailable — rating withheld. No mock data is ever used; this holding is excluded from recommendations and alerts until feeds recover."
+                >
+                  DATA ERROR
+                </Badge>
+              ) : (
                 <Badge variant={signalToVariant(h.signal)}>
                   {STATUS_LABELS[h.signal]}
                 </Badge>
-                {h.dataQuality === "degraded" && (
-                  <Badge
-                    variant="warning"
-                    className="text-[9px]"
-                    title="Live data unavailable for this stock — signal forced to HOLD; excluded from recommendations and alerts."
-                  >
-                    DEGRADED
-                  </Badge>
-                )}
-              </span>
+              )}
             </TableCell>
             <TableCell onClick={(e) => e.stopPropagation()}>
               {onAction ? (

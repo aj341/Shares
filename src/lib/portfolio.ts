@@ -63,9 +63,31 @@ async function getQuoteFor(ticker: string, source: DataSource): Promise<Quote> {
       }
     }
   }
-  // Mock fallback — flagged so the holding is marked degraded in live mode.
-  const mock = MOCK_QUOTES[ticker] ?? { currentPrice: 0, dayChangePct: 0 };
-  return { ...mock, real: false };
+  if (source === "mock") {
+    const mock = MOCK_QUOTES[ticker] ?? { currentPrice: 0, dayChangePct: 0 };
+    return { ...mock, real: false };
+  }
+  // Live mode with BOTH feeds down: never fabricate a price — zero values
+  // plus the degraded flag make the failure explicit in the UI.
+  return { currentPrice: 0, dayChangePct: 0, real: false };
+}
+
+/** Explicit error verdict for live mode when real data is unavailable. */
+function unavailableVerdict(): StockVerdict {
+  return {
+    summaryBullets: [
+      "Live data unavailable — this holding is NOT being rated.",
+      "No mock or stale values are used; the score and signal are withheld.",
+    ],
+    verdict: "neutral",
+    impactScore: 0,
+    thesisUpdate: "Data error — rating withheld until live feeds recover.",
+    marketReactionView: "Unavailable.",
+    actionHint: "no_change",
+    execCommentary: { hasExecComments: false, tone: "no_signal", keyPoints: [] },
+    factAlignment: { financialsSupportStory: "unclear", notes: "Live data unavailable." },
+    researchStatus: { ourResearchComplete: "no", recommendedFollowUp: ["Retry when feeds recover."] },
+  };
 }
 
 /** Replace the "Position size vs 35% cap" metric with one reflecting live weight. */
@@ -168,30 +190,40 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
     const portfolioWeight =
       totalPortfolioValue > 0 ? (b.marketValue / totalPortfolioValue) * 100 : 0;
 
-    // Metrics from REAL data when available, else curated mock fallback.
+    const isMockMode = source === "mock";
     const liveMetrics = liveMetricsArr[i];
-    const baseMetrics = liveMetrics ?? getMockMetrics(b.position.ticker);
-    const metrics = withLivePositionSizeMetric(baseMetrics, portfolioWeight);
 
-    // Display = live company news (with source URLs); falls back to mock.
-    const announcements = liveAnnouncements[i].length
-      ? liveAnnouncements[i]
-      : getAnnouncements(b.position.ticker);
+    // Data provenance. In live mode mock data is NEVER used — a failed feed
+    // is an explicit ERROR state (no metrics, no score, no signal), because a
+    // rating built on mock inputs is worse than no rating.
+    const dataQuality: Holding["dataQuality"] = isMockMode
+      ? "mock"
+      : quotes[i].real && liveMetrics
+      ? "live"
+      : "degraded";
+    const degraded = dataQuality === "degraded";
 
-    // Data provenance: in live mode, a holding whose quote or metrics fell
-    // back to mock is "degraded" — display-only, never actionable.
-    const dataQuality: Holding["dataQuality"] =
-      source === "mock" ? "mock" : quotes[i].real && liveMetrics ? "live" : "degraded";
+    const baseMetrics =
+      liveMetrics ?? (isMockMode ? getMockMetrics(b.position.ticker) : []);
+    const metrics = degraded
+      ? []
+      : withLivePositionSizeMetric(baseMetrics, portfolioWeight);
 
-    const scored = scoreHolding(metrics, {
-      rsi: extractRsi(metrics),
-      unrealisedPnlPct: b.unrealisedPnlPct,
-      portfolioWeight,
-      minAnnouncementImpact: minAnnouncementImpact(announcements),
-    });
+    // Mock announcements only in mock mode; live mode shows real news or none.
+    const announcements = isMockMode
+      ? getAnnouncements(b.position.ticker)
+      : liveAnnouncements[i];
+
+    const scored = degraded
+      ? { score: 0, signal: "HOLD" as const }
+      : scoreHolding(metrics, {
+          rsi: extractRsi(metrics),
+          unrealisedPnlPct: b.unrealisedPnlPct,
+          portfolioWeight,
+          minAnnouncementImpact: minAnnouncementImpact(announcements),
+        });
     const score = scored.score;
-    // SAFETY: mock-derived metrics must never express conviction in live mode.
-    const signal = dataQuality === "degraded" ? "HOLD" : scored.signal;
+    const signal = scored.signal;
 
     // Verdict derived from live metrics + news; if a cached Claude-deepened
     // verdict exists use it, otherwise serve the deterministic one now and warm
@@ -219,8 +251,11 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
           base,
         }).catch(() => {});
       }
-    } else {
+    } else if (isMockMode) {
       verdict = getVerdict(b.position.ticker);
+    } else {
+      // Live mode without live metrics: explicit error verdict, never mock.
+      verdict = unavailableVerdict();
     }
 
     return {

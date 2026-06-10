@@ -12,6 +12,8 @@ type UpcomingEvent = {
   date: string;
   detail: string;
   daysAway: number;
+  /** Avg absolute % move on past earnings prints (earnings events only). */
+  avgAbsMovePct?: number;
 };
 
 export function EventsRadar() {
@@ -58,6 +60,14 @@ export function EventsRadar() {
                   {e.ticker}
                 </Badge>
                 <span className="min-w-0 flex-1 truncate text-sm">{e.detail}</span>
+                {e.type === "earnings" && typeof e.avgAbsMovePct === "number" && (
+                  <span
+                    className="shrink-0 text-xs text-amber-600 tabular-nums dark:text-amber-500"
+                    title="Average absolute move on recent earnings prints"
+                  >
+                    ±{e.avgAbsMovePct.toFixed(1)}% hist.
+                  </span>
+                )}
                 <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                   {e.daysAway === 0 ? "today" : `in ${e.daysAway}d`}
                 </span>

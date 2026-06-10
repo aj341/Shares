@@ -1,6 +1,8 @@
 import { buildStockTechnicals } from "@/lib/technicals";
 import { getUpgradeDowngrade, isMboumConfigured } from "@/lib/mboum";
 import { sectorFor } from "@/lib/sectors";
+import { getTopRanked, type WatchlistRanking } from "@/lib/watchlist-screen";
+import { universeEntryFor } from "@/lib/universe";
 import type {
   WatchlistBucket,
   WatchlistItem,
@@ -8,10 +10,16 @@ import type {
 } from "@/lib/types";
 
 /**
- * Curated watchlist of AI/tech names that complement the book, enriched with
- * LIVE metrics (price, RSI, target, P/E, 52w, analyst consensus) and REAL
- * recent analyst actions from Mboum. The qualitative notes are editorial and
- * sourced framing — surfaced as analysis, NOT financial advice.
+ * Watchlist of names that complement the book, enriched with LIVE metrics
+ * (price, RSI, target, P/E, 52w, analyst consensus) and REAL recent analyst
+ * actions from Mboum.
+ *
+ * Candidate selection is DYNAMIC: when the relative-strength screen has run
+ * (see watchlist-screen.ts / the watchlist-scan cron), the top-ranked
+ * non-held names from the Nasdaq-100 universe are used, with data-driven
+ * framing built from their rank stats. When no scan has run yet, we fall
+ * back to the hand-curated CANDIDATES below. Qualitative notes are analysis,
+ * NOT financial advice.
  */
 
 type Candidate = {
@@ -139,6 +147,59 @@ function technicalSignal(bucket: WatchlistBucket, rsi: number | null): string {
   return `RSI ${rsi} — mid-range; no momentum extreme, healthy reset territory.`;
 }
 
+/** Signed percent string, e.g. "+34.2%" / "-5.1%". */
+function signedPct(n: number): string {
+  const rounded = Math.round(n * 10) / 10;
+  return `${rounded >= 0 ? "+" : ""}${rounded}%`;
+}
+
+/** Build a screened candidate's editorial fields from its rank stats. */
+function candidateFromRanking(r: WatchlistRanking): Candidate {
+  const entry = universeEntryFor(r.ticker);
+  const mom = signedPct(r.momentumPct);
+  const rs = signedPct(r.rsPct);
+  const revisionClause =
+    r.revision === "upgrading"
+      ? "with analysts upgrading"
+      : r.revision === "downgrading"
+        ? "despite analysts downgrading"
+        : "with analyst revisions stable";
+  return {
+    ticker: r.ticker,
+    companyName: entry?.companyName ?? r.ticker,
+    subSectors: entry?.subSectors ?? ["Momentum Screen"],
+    whyItFits: `Ranked #${r.rank} of ${r.universeSize} in the Nasdaq-100 relative-strength screen by 12-1 momentum (${mom}) and relative strength vs QQQ (${rs}) ${revisionClause}.`,
+    bullCase: `12-1 momentum of ${mom} and ${rs} outperformance vs QQQ over six months suggest persistent leadership; ${
+      r.revision === "upgrading"
+        ? "upgrading analyst revisions add fundamental confirmation."
+        : r.revision === "stable"
+          ? "stable analyst revisions imply the move is not yet crowded by estimate hype."
+          : "a rebound in analyst revisions would add fundamental confirmation."
+    }`,
+    keyRisk: `Momentum leadership can reverse sharply — the rank (composite ${r.composite >= 0 ? "+" : ""}${Math.round(r.composite * 100) / 100}) depends on trend persistence${
+      r.revision === "downgrading"
+        ? ", and analysts are currently downgrading"
+        : ""
+    }; screens carry no valuation or quality filter.`,
+  };
+}
+
+/**
+ * Candidate list: top-ranked names from the latest scan when available,
+ * otherwise the static curated list.
+ */
+async function resolveCandidates(): Promise<Candidate[]> {
+  try {
+    const top = await getTopRanked(CANDIDATES.length);
+    if (top.length > 0) return top.map(candidateFromRanking);
+  } catch (err) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[watchlist] screen unavailable, using static candidates:", (err as Error).message);
+    }
+  }
+  return CANDIDATES;
+}
+
 // 15-min cache so /api/watchlist and /api/alerts (entry-trigger check) reuse
 // one computation rather than re-fetching 8 tickers of Mboum data each call.
 let WL_CACHE: { data: WatchlistResponse; ts: number } | null = null;
@@ -158,8 +219,10 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
     };
   }
 
+  const candidates = await resolveCandidates();
+
   const items = await Promise.all(
-    CANDIDATES.map(async (c): Promise<WatchlistItem> => {
+    candidates.map(async (c): Promise<WatchlistItem> => {
       const [tech, actions] = await Promise.all([
         buildStockTechnicals(c.ticker),
         getUpgradeDowngrade(c.ticker),

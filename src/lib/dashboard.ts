@@ -4,8 +4,12 @@ import {
   toAudPortfolio,
   toAudRedistribution,
 } from "@/lib/portfolio";
-import { buildRedistribution } from "@/lib/redistribution";
+import {
+  buildRedistribution,
+  type NewPositionCandidate,
+} from "@/lib/redistribution";
 import { getMarketRegime } from "@/lib/regime";
+import { buildWatchlist } from "@/lib/watchlist";
 import { buildDisagreementRow } from "@/lib/announcements";
 import { extractRsi, scoreHolding } from "@/lib/scoring";
 import { minAnnouncementImpact } from "@/lib/announcements";
@@ -88,6 +92,26 @@ function buildKpis(portfolio: PortfolioResponse): DashboardKpis {
   };
 }
 
+/**
+ * Top screened watchlist names as new-position candidates for redistribution.
+ * Empty in risk-off regimes — no new positions into a falling market.
+ */
+async function newPositionCandidates(
+  riskOff: boolean
+): Promise<NewPositionCandidate[]> {
+  if (riskOff) return [];
+  const watch = await buildWatchlist().catch(() => null);
+  return (watch?.items ?? [])
+    .filter((i) => i.price != null && i.price > 0 && i.bucket !== "overbought")
+    .slice(0, 3)
+    .map((i) => ({
+      ticker: i.ticker,
+      companyName: i.companyName,
+      priceUsd: i.price as number,
+      rationale: i.whyItFits,
+    }));
+}
+
 /** Aggregate everything for the /api/dashboard endpoint. */
 export async function buildDashboard(): Promise<DashboardResponse> {
   // Engine runs in USD; convert to AUD for display (prices stay USD).
@@ -95,9 +119,11 @@ export async function buildDashboard(): Promise<DashboardResponse> {
     buildPortfolio(),
     getMarketRegime().catch(() => null),
   ]);
+  const candidates = await newPositionCandidates(regime?.regime === "risk_off");
   const redistributionUsd = buildRedistribution(portfolioUsd, {
     targetCashBufferPct: regime?.targetCashBufferPct,
     regimeLabel: regime?.label,
+    newPositionCandidates: candidates,
   });
 
   const portfolio = toAudPortfolio(portfolioUsd);
