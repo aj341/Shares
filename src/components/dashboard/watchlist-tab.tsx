@@ -17,7 +17,7 @@ const BUCKET_META: Record<
   { title: string; tone: string; chip: string }
 > = {
   best_entry: {
-    title: "Best Entry Now",
+    title: "Pullback Entry (timing)",
     tone: "[color:hsl(var(--positive))]",
     chip: "bg-positive-muted [color:hsl(var(--positive))]",
   },
@@ -77,8 +77,9 @@ export function WatchlistTab({
           <div>
             <h2 className="text-base font-semibold">Watchlist — Suggested Additions</h2>
             <p className="mt-1 max-w-md text-xs text-muted-foreground">
-              High-conviction AI/tech names to complement the portfolio, ranked by
-              entry quality (RSI signal). Not financial advice.
+              Screened Nasdaq names. Buckets show entry TIMING (RSI pullback);
+              the Score shows QUALITY on the same 20-metric engine as your
+              holdings — 70+ competes for capital. Not financial advice.
             </p>
           </div>
           <div className="flex gap-6 text-right">
@@ -181,6 +182,17 @@ function WatchRow({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-4">
+          <Stat
+            label="Score"
+            value={item.engineScore != null ? `${item.engineScore}` : "—"}
+            className={
+              item.engineScore != null && item.engineScore >= 70
+                ? "[color:hsl(var(--positive))]"
+                : item.engineScore != null && item.engineScore < 55
+                ? "[color:hsl(var(--negative))]"
+                : "[color:hsl(var(--warning))]"
+            }
+          />
           <Stat label="Price" value={item.price != null ? formatUsd(item.price) : "—"} />
           <Stat
             label="Upside"

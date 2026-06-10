@@ -1,9 +1,12 @@
 import { buildStockTechnicals } from "@/lib/technicals";
 import { getUpgradeDowngrade, isMboumConfigured } from "@/lib/mboum";
+import { computeLiveMetrics } from "@/lib/live-metrics";
+import { extractRsi, scoreHolding } from "@/lib/scoring";
 import { sectorFor } from "@/lib/sectors";
 import { getTopRanked, type WatchlistRanking } from "@/lib/watchlist-screen";
 import { universeEntryFor } from "@/lib/universe";
 import type {
+  Signal,
   WatchlistBucket,
   WatchlistItem,
   WatchlistResponse,
@@ -184,6 +187,29 @@ function candidateFromRanking(r: WatchlistRanking): Candidate {
   };
 }
 
+/**
+ * Score a watchlist name on the SAME 20-metric engine as holdings — the
+ * bucket is entry TIMING (RSI); this is QUALITY. Null when live data fails
+ * (no-mock rule). computeLiveMetrics has its own 10-min cache.
+ */
+async function scoreOnEngine(
+  ticker: string
+): Promise<{ score: number; signal: Signal } | null> {
+  try {
+    const metrics = await computeLiveMetrics(ticker, []);
+    if (!metrics) return null;
+    const { score, signal } = scoreHolding(metrics, {
+      rsi: extractRsi(metrics),
+      unrealisedPnlPct: 0,
+      portfolioWeight: 0,
+      minAnnouncementImpact: 0,
+    });
+    return { score, signal };
+  } catch {
+    return null;
+  }
+}
+
 /** Entry-zone threshold: RSI below this counts as a constructive pullback. */
 const ENTRY_RSI_MAX = 50;
 const MOMENTUM_SLOTS = 5;
@@ -268,13 +294,16 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
 
   const items = await Promise.all(
     candidates.map(async (c): Promise<WatchlistItem> => {
-      const [tech, actions] = await Promise.all([
+      const [tech, actions, engine] = await Promise.all([
         buildStockTechnicals(c.ticker),
         getUpgradeDowngrade(c.ticker),
+        scoreOnEngine(c.ticker),
       ]);
       const price = tech.sparkline.at(-1) ?? null;
       const { bucket, label } = bucketFor(tech.rsi);
       return {
+        engineScore: engine?.score ?? null,
+        engineSignal: engine?.signal ?? null,
         ticker: c.ticker,
         companyName: c.companyName,
         sector: sectorFor(c.ticker),

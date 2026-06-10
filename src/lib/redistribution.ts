@@ -209,6 +209,19 @@ export function buildRedistribution(
     return 0;
   });
 
+  // Fair split: when several BUY-grade options qualify, capital is divided
+  // across them (strongest first gets any whole-share remainder) instead of
+  // the top scorer absorbing everything — a 74 incumbent should not starve a
+  // 73 new idea over one point.
+  const initialAvailable = availableToInvest;
+  const fundableEntries =
+    queue.filter((q) => q.kind === "existing").length +
+    Math.min(queue.filter((q) => q.kind === "new").length, MAX_NEW_POSITIONS);
+  const perEntryCap =
+    fundableEntries > 1
+      ? Math.max(initialAvailable / fundableEntries, minTradeSize)
+      : Number.POSITIVE_INFINITY;
+
   let totalInvested = 0;
   const newPositions: { ticker: string; companyName: string; mv: number }[] = [];
   for (const entry of queue) {
@@ -218,7 +231,8 @@ export function buildRedistribution(
       const h = entry.holding;
       const currentMv = mvAfter.get(h.ticker) ?? 0;
       const headroomToCap = Math.max(0, cap - currentMv);
-      const maxByCash = Math.floor(availableToInvest / h.currentPrice);
+      const spendable = Math.min(availableToInvest, perEntryCap);
+      const maxByCash = Math.floor(spendable / h.currentPrice);
       const maxByCap = Math.floor(headroomToCap / h.currentPrice);
       const buy = Math.max(0, Math.min(maxByCash, maxByCap));
 
@@ -243,6 +257,7 @@ export function buildRedistribution(
       const cand = entry.cand;
       const budget = Math.min(
         availableToInvest,
+        perEntryCap,
         totalPortfolioValue * NEW_POSITION_MAX_WEIGHT
       );
       const shares = Math.floor(budget / cand.priceUsd);

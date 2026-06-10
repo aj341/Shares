@@ -10,7 +10,6 @@ import {
 } from "@/lib/redistribution";
 import { getMarketRegime } from "@/lib/regime";
 import { buildWatchlist } from "@/lib/watchlist";
-import { computeLiveMetrics } from "@/lib/live-metrics";
 import { buildDisagreementRow } from "@/lib/announcements";
 import { extractRsi, scoreHolding } from "@/lib/scoring";
 import { minAnnouncementImpact } from "@/lib/announcements";
@@ -104,35 +103,20 @@ export async function buildNewPositionCandidates(
 ): Promise<NewPositionCandidate[]> {
   if (riskOff) return [];
   const watch = await buildWatchlist().catch(() => null);
-  const shortlist = (watch?.items ?? [])
-    .filter((i) => i.price != null && i.price > 0 && i.bucket !== "overbought")
-    .slice(0, 3);
-
-  return Promise.all(
-    shortlist.map(async (i) => {
-      let score: number | null = null;
-      try {
-        const metrics = await computeLiveMetrics(i.ticker, []);
-        if (metrics) {
-          score = scoreHolding(metrics, {
-            rsi: extractRsi(metrics),
-            unrealisedPnlPct: 0,
-            portfolioWeight: 0,
-            minAnnouncementImpact: 0,
-          }).score;
-        }
-      } catch {
-        // Unscored candidates simply don't compete (score stays null).
-      }
-      return {
-        ticker: i.ticker,
-        companyName: i.companyName,
-        priceUsd: i.price as number,
-        rationale: i.whyItFits,
-        score,
-      };
-    })
-  );
+  // EVERY watchlist name enters the contest with its engine score — bucket is
+  // entry timing, not quality, so it must not gate eligibility (a BUY-grade
+  // name in the "neutral" bucket still competes). Redistribution applies the
+  // >=70 bar; all scores are surfaced via candidatesConsidered.
+  return (watch?.items ?? [])
+    .filter((i) => i.price != null && i.price > 0)
+    .map((i) => ({
+      ticker: i.ticker,
+      companyName: i.companyName,
+      priceUsd: i.price as number,
+      rationale: i.whyItFits,
+      score: i.engineScore,
+    }))
+    .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
 }
 
 /** Aggregate everything for the /api/dashboard endpoint. */

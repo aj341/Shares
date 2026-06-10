@@ -480,6 +480,9 @@ export type WatchlistItem = {
   week52Low: number | null;
   bucket: WatchlistBucket;
   signalLabel: string;
+  /** Score on the SAME 20-metric engine as holdings (quality; bucket = timing). */
+  engineScore: number | null;
+  engineSignal: Signal | null;
   // Editorial (curated, sourced framing — not financial advice)
   whyItFits: string;
   bullCase: string;
