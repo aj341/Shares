@@ -15,7 +15,7 @@ import "server-only";
  */
 
 const SEND_URL =
-  "https://gdcdynam.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest";
+  "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest";
 const FLEX_VERSION = "3";
 
 /** Env var names we'll accept for the Flex token (canonical first). */
