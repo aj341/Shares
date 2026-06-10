@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchFlexStatement, isIbkrConfigured } from "@/lib/ibkr";
+import { saveBrokerCash } from "@/lib/broker-cash";
 import {
   appendTransaction,
   readPortfolio,
@@ -56,6 +57,11 @@ export async function GET(req: NextRequest) {
         cash: statement.cash,
       });
     }
+
+    // Persist native-currency cash so buildPortfolio shows real broker cash.
+    await saveBrokerCash(
+      statement.cash.map((c) => ({ currency: c.currency, amount: c.endingCash }))
+    ).catch(() => {});
 
     const before = derive(await readPortfolio());
     const current = new Map(before.positions.map((p) => [p.ticker, p]));

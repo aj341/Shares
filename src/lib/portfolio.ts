@@ -1,5 +1,6 @@
 import { resolveDataSource, CASH_BALANCES, DISPLAY_CURRENCY } from "@/lib/constants";
-import { getFxRates } from "@/lib/fx";
+import { getFxRates, toAud } from "@/lib/fx";
+import { readBrokerCash } from "@/lib/broker-cash";
 import {
   getAnalystView,
   getAnnouncements,
@@ -74,16 +75,23 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
   //    Engine works in USD (US equities are USD-priced); we convert to AUD for
   //    display in toAudPortfolio. Cash is the multi-currency broker balance,
   //    summed to USD here so the USD engine (redistribution) stays consistent.
-  const [{ positions }, fx] = await Promise.all([
+  const [{ positions }, fx, brokerCash] = await Promise.all([
     getDerivedPortfolio(),
     getFxRates(),
+    readBrokerCash().catch(() => null),
   ]);
 
-  // Balances are already AUD market values (broker's column) — no re-conversion.
-  const cashBalances: CashBalance[] = CASH_BALANCES.map((b) => ({
-    currency: b.currency,
-    amountAud: round2(b.amountAud),
-  }));
+  // Cash: prefer the IBKR-synced balances (NATIVE currency → AUD via live FX);
+  // fall back to the static CASH_BALANCES (already AUD market values).
+  const cashBalances: CashBalance[] = brokerCash
+    ? brokerCash.map((b) => ({
+        currency: b.currency,
+        amountAud: round2(toAud(b.amount, b.currency, fx)),
+      }))
+    : CASH_BALANCES.map((b) => ({
+        currency: b.currency,
+        amountAud: round2(b.amountAud),
+      }));
   const cashAud = cashBalances.reduce((s, b) => s + b.amountAud, 0);
   const currentCash = cashAud * fx.audToUsd; // USD-equivalent for the engine
 
