@@ -64,6 +64,8 @@ function Stat({
 }
 
 function DetailBody({ holding: h }: { holding: Holding }) {
+  // shares === 0 marks a research view (watchlist name, not held).
+  const held = h.shares > 0;
   return (
     <>
       <SheetHeader>
@@ -74,6 +76,11 @@ function DetailBody({ holding: h }: { holding: Holding }) {
               <Badge variant={signalToVariant(h.signal)}>
                 {STATUS_LABELS[h.signal]}
               </Badge>
+              {!held && (
+                <Badge variant="outline" className="text-[10px]">
+                  WATCHLIST · NOT HELD
+                </Badge>
+              )}
             </SheetTitle>
             <SheetDescription>{h.companyName}</SheetDescription>
           </div>
@@ -87,28 +94,40 @@ function DetailBody({ holding: h }: { holding: Holding }) {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-4 sm:grid-cols-4">
-          <Stat label="Shares" value={formatNumber(h.shares, 0)} />
-          <Stat label="Entry" value={formatUsd(h.entryPrice)} />
-          <Stat label="Mkt value" value={formatCurrency(h.marketValue, { compact: true })} />
-          <Stat label="Weight" value={`${formatNumber(h.portfolioWeight, 1)}%`} />
-          <Stat
-            label="Unreal. P&L"
-            value={formatCurrency(h.unrealisedPnl, { sign: true, compact: true })}
-            className={signedTextClass(h.unrealisedPnl)}
-          />
-          <Stat
-            label="Return"
-            value={formatPct(h.unrealisedPnlPct, { sign: true })}
-            className={signedTextClass(h.unrealisedPnlPct)}
-          />
-          <Stat
-            label="Score"
-            value={`${h.score}/100`}
-            className={scoreColorClass(h.score)}
-          />
-          <Stat label="Cost basis" value={formatCurrency(h.costBasis, { compact: true })} />
-        </div>
+        {held ? (
+          <div className="mt-4 grid grid-cols-3 gap-4 sm:grid-cols-4">
+            <Stat label="Shares" value={formatNumber(h.shares, 0)} />
+            <Stat label="Entry" value={formatUsd(h.entryPrice)} />
+            <Stat label="Mkt value" value={formatCurrency(h.marketValue, { compact: true })} />
+            <Stat label="Weight" value={`${formatNumber(h.portfolioWeight, 1)}%`} />
+            <Stat
+              label="Unreal. P&L"
+              value={formatCurrency(h.unrealisedPnl, { sign: true, compact: true })}
+              className={signedTextClass(h.unrealisedPnl)}
+            />
+            <Stat
+              label="Return"
+              value={formatPct(h.unrealisedPnlPct, { sign: true })}
+              className={signedTextClass(h.unrealisedPnlPct)}
+            />
+            <Stat
+              label="Score"
+              value={`${h.score}/100`}
+              className={scoreColorClass(h.score)}
+            />
+            <Stat label="Cost basis" value={formatCurrency(h.costBasis, { compact: true })} />
+          </div>
+        ) : (
+          <div className="mt-4 grid grid-cols-3 gap-4">
+            <Stat
+              label="Score"
+              value={`${h.score}/100`}
+              className={scoreColorClass(h.score)}
+            />
+            <Stat label="Signal" value={STATUS_LABELS[h.signal]} />
+            <Stat label="Day move" value={formatPct(h.dayChangePct, { sign: true })} className={signedTextClass(h.dayChangePct)} />
+          </div>
+        )}
       </SheetHeader>
 
       <div className="space-y-6 p-6">

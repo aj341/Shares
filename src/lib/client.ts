@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   DailyBrief,
   DashboardResponse,
+  Holding,
   PerformanceResponse,
   PortfolioAlert,
   PortfolioTransaction,
@@ -49,6 +50,12 @@ export function fetchWatchlist(): Promise<WatchlistResponse> {
 
 export function fetchBrief(): Promise<DailyBrief> {
   return getJson<DailyBrief>("/api/brief");
+}
+
+export function fetchResearch(ticker: string): Promise<{ holding: Holding }> {
+  return getJson<{ holding: Holding }>(
+    `/api/research/${encodeURIComponent(ticker)}`
+  );
 }
 
 export async function askAssistant(

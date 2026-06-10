@@ -36,9 +36,12 @@ const BUCKET_META: Record<
 export function WatchlistTab({
   data,
   loading,
+  onSelect,
 }: {
   data: WatchlistResponse | null;
   loading: boolean;
+  /** Open the full research drawer (metrics/announcements/verdict) for a ticker. */
+  onSelect?: (ticker: string) => void;
 }) {
   if (loading) {
     return (
@@ -110,7 +113,7 @@ export function WatchlistTab({
       {/* Rows */}
       <div className="space-y-2">
         {data.items.map((it) => (
-          <WatchRow key={it.ticker} item={it} />
+          <WatchRow key={it.ticker} item={it} onSelect={onSelect} />
         ))}
       </div>
     </div>
@@ -126,9 +129,27 @@ function Summary({ label, value, className }: { label: string; value: string; cl
   );
 }
 
-function WatchRow({ item }: { item: WatchlistItem }) {
+function WatchRow({
+  item,
+  onSelect,
+}: {
+  item: WatchlistItem;
+  onSelect?: (ticker: string) => void;
+}) {
   const [open, setOpen] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
   const meta = BUCKET_META[item.bucket];
+
+  const openResearch = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onSelect || busy) return;
+    setBusy(true);
+    // The shell opens the drawer when the analysis is ready; clear the
+    // spinner shortly after either way.
+    Promise.resolve(onSelect(item.ticker)).finally(() =>
+      setTimeout(() => setBusy(false), 400)
+    );
+  };
 
   return (
     <Card>
@@ -139,7 +160,18 @@ function WatchRow({ item }: { item: WatchlistItem }) {
       >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-mono-nums font-bold">{item.ticker}</span>
+            <span
+              role={onSelect ? "button" : undefined}
+              onClick={onSelect ? openResearch : undefined}
+              className={cn(
+                "font-mono-nums font-bold",
+                onSelect && "cursor-pointer underline-offset-4 hover:underline"
+              )}
+              title={onSelect ? "Open full analysis" : undefined}
+            >
+              {item.ticker}
+              {busy && <span className="ml-1 animate-pulse text-xs text-muted-foreground">…</span>}
+            </span>
             <span className="hidden truncate text-sm text-muted-foreground sm:inline">
               {item.companyName}
             </span>
@@ -183,6 +215,17 @@ function WatchRow({ item }: { item: WatchlistItem }) {
           <Section title="Bull Case" body={item.bullCase} titleClass="[color:hsl(var(--positive))]" />
           <Section title="Key Risk" body={item.keyRisk} titleClass="[color:hsl(var(--negative))]" />
           <Section title="Technical Signal" body={item.technicalSignal} titleClass="[color:hsl(var(--brand))]" />
+
+          {onSelect && (
+            <button
+              type="button"
+              onClick={openResearch}
+              disabled={busy}
+              className="w-full rounded-lg border border-border py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+            >
+              {busy ? "Building full analysis…" : "Open full analysis (metrics · news · verdict) →"}
+            </button>
+          )}
 
           {item.recentAnalystActions.length > 0 && (
             <div>

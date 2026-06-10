@@ -48,12 +48,14 @@ import {
   fetchAlerts,
   fetchDashboard,
   fetchPerformance,
+  fetchResearch,
   fetchStocks,
   fetchWatchlist,
 } from "@/lib/client";
 import { computeInsights } from "@/lib/insights";
 import type {
   DashboardResponse,
+  Holding,
   PerformanceResponse,
   PortfolioAlert,
   StocksResponse,
@@ -144,6 +146,30 @@ export function DashboardShell() {
     setSheetOpen(true);
   };
 
+  // Watchlist names open the SAME drawer via the research endpoint (full
+  // metrics/news/verdict for a non-held ticker). Held tickers short-circuit.
+  const [research, setResearch] = React.useState<Holding | null>(null);
+  const handleWatchSelect = React.useCallback(
+    async (ticker: string) => {
+      if (
+        state.status === "ready" &&
+        state.data.portfolio.holdings.some((h) => h.ticker === ticker)
+      ) {
+        handleSelect(ticker);
+        return;
+      }
+      try {
+        const { holding } = await fetchResearch(ticker);
+        setResearch(holding);
+        setSelected(ticker);
+        setSheetOpen(true);
+      } catch {
+        // Live data unavailable — no drawer (mock is never shown).
+      }
+    },
+    [state]
+  );
+
   const openDialog = (type: DialogType, ticker?: string) =>
     setDialog({ type, ticker });
 
@@ -156,9 +182,10 @@ export function DashboardShell() {
   }, [load, loadPerf, loadStocks, loadWatch, loadAlerts]);
 
   const selectedHolding =
-    state.status === "ready"
-      ? state.data.portfolio.holdings.find((h) => h.ticker === selected) ?? null
-      : null;
+    (state.status === "ready"
+      ? state.data.portfolio.holdings.find((h) => h.ticker === selected)
+      : null) ??
+    (research && research.ticker === selected ? research : null);
 
   return (
     <div className="min-h-screen">
@@ -182,6 +209,7 @@ export function DashboardShell() {
             watch={watch}
             alerts={alerts}
             onSelect={handleSelect}
+            onWatchSelect={handleWatchSelect}
             onAction={openDialog}
           />
         )}
@@ -264,6 +292,7 @@ function ReadyView({
   watch,
   alerts,
   onSelect,
+  onWatchSelect,
   onAction,
 }: {
   data: DashboardResponse;
@@ -272,6 +301,7 @@ function ReadyView({
   watch: WatchState;
   alerts: PortfolioAlert[];
   onSelect: (ticker: string) => void;
+  onWatchSelect: (ticker: string) => void;
   onAction: (type: DialogType, ticker?: string) => void;
 }) {
   const { portfolio, redistribution, disagreement } = data;
@@ -413,7 +443,7 @@ function ReadyView({
         </TabsContent>
 
         <TabsContent value="watchlist">
-          <WatchlistTab data={watch.data} loading={watch.loading} />
+          <WatchlistTab data={watch.data} loading={watch.loading} onSelect={onWatchSelect} />
         </TabsContent>
 
         <TabsContent value="analyzer">
