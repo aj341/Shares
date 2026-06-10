@@ -140,6 +140,15 @@ export function RebalancingCards({
               summary.regimeLabel ? ` — ${summary.regimeLabel}` : ""
             })`
           : ""}
+        {summary.candidatesConsidered && summary.candidatesConsidered.length > 0 && (
+          <span className="mt-1 block">
+            New-position contest:{" "}
+            {summary.candidatesConsidered
+              .map((c) => `${c.ticker} ${c.score != null ? `scored ${c.score}/100` : "unscored"}`)
+              .join(", ")}{" "}
+            — needs 70+ to outbid topping up existing holdings.
+          </span>
+        )}
       </p>
     </div>
   );

@@ -161,6 +161,12 @@ export type RedistributionSummary = {
   targetCashBufferPct?: number;
   /** Human label of the market regime that set the buffer. */
   regimeLabel?: string;
+  /**
+   * Watchlist candidates that competed for capital this run, with their
+   * 20-metric scores — visible proof the new-position contest happened even
+   * when no candidate cleared the BUY bar.
+   */
+  candidatesConsidered?: Array<{ ticker: string; score: number | null }>;
 };
 
 // ---------------------------------------------------------------------------

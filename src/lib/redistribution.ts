@@ -310,6 +310,10 @@ export function buildRedistribution(
     tickersFullySold,
     targetCashBufferPct: bufferPct,
     regimeLabel: opts.regimeLabel,
+    candidatesConsidered: (opts.newPositionCandidates ?? []).map((c) => ({
+      ticker: c.ticker,
+      score: c.score,
+    })),
   };
 
   // Order: sells, then trims, then buys.

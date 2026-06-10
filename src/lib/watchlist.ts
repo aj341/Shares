@@ -210,15 +210,22 @@ async function resolveCandidates(): Promise<Candidate[]> {
         picked.push(r);
         taken.add(r.ticker);
       }
-      // 2. Strong-enough names already pulled back (entry-zone RSI), best
-      //    rank first — quality cap keeps bottom-decile losers out.
-      for (const r of pool) {
+      // 2. Strong-enough names already pulled back, MOST pulled-back first
+      //    (deepest entry opportunity) — the rank cap keeps bottom-decile
+      //    losers out, the RSI sort makes "best entry" mean what it says.
+      const entryZone = pool
+        .filter(
+          (r) =>
+            !taken.has(r.ticker) &&
+            r.rank <= ENTRY_MAX_RANK &&
+            r.rsi14 != null &&
+            r.rsi14 < ENTRY_RSI_MAX
+        )
+        .sort((a, b) => (a.rsi14 as number) - (b.rsi14 as number));
+      for (const r of entryZone) {
         if (picked.length >= total) break;
-        if (taken.has(r.ticker)) continue;
-        if (r.rank <= ENTRY_MAX_RANK && r.rsi14 != null && r.rsi14 < ENTRY_RSI_MAX) {
-          picked.push(r);
-          taken.add(r.ticker);
-        }
+        picked.push(r);
+        taken.add(r.ticker);
       }
       // 3. Fill any remaining slots by rank.
       for (const r of pool) {
