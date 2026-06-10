@@ -401,6 +401,7 @@ function ReadyView({
           <RebalancingCards
             redistribution={redistribution}
             holdings={portfolio.holdings}
+            onSelect={onWatchSelect}
           />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

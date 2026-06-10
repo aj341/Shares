@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { captureSnapshot } from "@/lib/backtest";
+import { captureSnapshot, captureWatchlistSnapshot } from "@/lib/backtest";
 import { runWatchlistScan } from "@/lib/watchlist-screen";
 import type { ApiError } from "@/lib/types";
 
@@ -30,10 +30,14 @@ export async function GET(req: NextRequest) {
     // Refresh the watchlist screen nightly alongside the snapshot. Failures
     // must never break snapshot capture — the previous rankings just persist.
     const scan = await runWatchlistScan().catch(() => null);
+    // Snapshot the watchlist names' engine scores too: feeds the same
+    // fixed-horizon backtest AND the two-run confirmation for new positions.
+    const watchSnap = await captureWatchlistSnapshot().catch(() => null);
     return NextResponse.json({
       ok: true,
       captured,
       watchlistScan: scan ?? { scanned: 0, ranked: 0 },
+      watchlistScores: watchSnap?.captured ?? 0,
     });
   } catch (err) {
     const body: ApiError = {

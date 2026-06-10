@@ -82,6 +82,13 @@ export type NewPositionCandidate = {
   rationale: string;
   /** Score on the SAME 20-metric engine as holdings (null = unscored). */
   score: number | null;
+  /**
+   * Minimum score this candidate must clear (default 70; raised to 75 when
+   * its sector already dominates the book — doubling down needs conviction).
+   */
+  minBar?: number;
+  /** False when yesterday's snapshot failed confirmation (anti-churn). */
+  confirmed?: boolean;
 };
 
 const MAX_NEW_POSITIONS = 2;
@@ -200,7 +207,11 @@ export function buildRedistribution(
     ...(opts.newPositionCandidates ?? [])
       .filter(
         (c) =>
-          c.score != null && c.score >= 70 && c.priceUsd > 0 && !mvAfter.has(c.ticker)
+          c.score != null &&
+          c.score >= (c.minBar ?? 70) &&
+          c.confirmed !== false &&
+          c.priceUsd > 0 &&
+          !mvAfter.has(c.ticker)
       )
       .map((c) => ({ kind: "new" as const, cand: c, score: c.score as number })),
   ].sort((a, b) => {
@@ -209,18 +220,32 @@ export function buildRedistribution(
     return 0;
   });
 
-  // Fair split: when several BUY-grade options qualify, capital is divided
-  // across them (strongest first gets any whole-share remainder) instead of
-  // the top scorer absorbing everything — a 74 incumbent should not starve a
-  // 73 new idea over one point.
+  // Conviction-weighted split: when several BUY-grade options qualify,
+  // capital divides by score distance above the bar (weight = score − 65),
+  // so a 78 earns meaningfully more than a 71 — neither winner-takes-all
+  // (a 74 starving a 73 over one point) nor a flat equal split that ignores
+  // conviction. Whole-share remainders flow down the queue, then to cash.
   const initialAvailable = availableToInvest;
-  const fundableEntries =
-    queue.filter((q) => q.kind === "existing").length +
-    Math.min(queue.filter((q) => q.kind === "new").length, MAX_NEW_POSITIONS);
-  const perEntryCap =
-    fundableEntries > 1
-      ? Math.max(initialAvailable / fundableEntries, minTradeSize)
-      : Number.POSITIVE_INFINITY;
+  const fundable = [
+    ...queue.filter((q) => q.kind === "existing"),
+    ...queue.filter((q) => q.kind === "new").slice(0, MAX_NEW_POSITIONS),
+  ];
+  const totalWeight = fundable.reduce((s, q) => s + Math.max(1, q.score - 65), 0);
+  const budgetFor = new Map<string, number>();
+  if (fundable.length > 1 && totalWeight > 0) {
+    for (const q of fundable) {
+      const t = q.kind === "existing" ? q.holding.ticker : q.cand.ticker;
+      budgetFor.set(
+        t,
+        Math.max(
+          (initialAvailable * Math.max(1, q.score - 65)) / totalWeight,
+          minTradeSize
+        )
+      );
+    }
+  }
+  const capFor = (ticker: string) =>
+    budgetFor.get(ticker) ?? Number.POSITIVE_INFINITY;
 
   let totalInvested = 0;
   const newPositions: { ticker: string; companyName: string; mv: number }[] = [];
@@ -231,7 +256,7 @@ export function buildRedistribution(
       const h = entry.holding;
       const currentMv = mvAfter.get(h.ticker) ?? 0;
       const headroomToCap = Math.max(0, cap - currentMv);
-      const spendable = Math.min(availableToInvest, perEntryCap);
+      const spendable = Math.min(availableToInvest, capFor(h.ticker));
       const maxByCash = Math.floor(spendable / h.currentPrice);
       const maxByCap = Math.floor(headroomToCap / h.currentPrice);
       const buy = Math.max(0, Math.min(maxByCash, maxByCap));
@@ -257,7 +282,7 @@ export function buildRedistribution(
       const cand = entry.cand;
       const budget = Math.min(
         availableToInvest,
-        perEntryCap,
+        capFor(cand.ticker),
         totalPortfolioValue * NEW_POSITION_MAX_WEIGHT
       );
       const shares = Math.floor(budget / cand.priceUsd);

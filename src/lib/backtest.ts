@@ -74,6 +74,40 @@ export async function captureSnapshot(): Promise<{ captured: number }> {
   return { captured: portfolio.holdings.length };
 }
 
+/**
+ * Snapshot the watchlist names' engine scores too, so the fixed-horizon
+ * backtest validates the SCREEN's signals the same way it validates the
+ * holdings'. Skips names without a live score or price. No-op without a DB.
+ */
+export async function captureWatchlistSnapshot(): Promise<{ captured: number }> {
+  if (!isDatabaseConfigured()) return { captured: 0 };
+
+  await ensureSnapshotSchema();
+  const { buildWatchlist } = await import("@/lib/watchlist");
+  const watch = await buildWatchlist().catch(() => null);
+  const rows = (watch?.items ?? []).filter(
+    (i) => i.engineScore != null && i.engineSignal != null && i.price != null
+  );
+  if (rows.length === 0) return { captured: 0 };
+
+  const values: unknown[] = [];
+  const tuples: string[] = [];
+  rows.forEach((i, idx) => {
+    const base = idx * 4;
+    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`);
+    values.push(i.ticker, Math.round(i.engineScore as number), i.engineSignal, i.price);
+  });
+
+  await query(
+    `INSERT INTO score_snapshots (ticker, score, signal, price) VALUES ${tuples.join(
+      ", "
+    )}`,
+    values
+  );
+
+  return { captured: rows.length };
+}
+
 type SnapshotRow = {
   ticker: string;
   signal: string;

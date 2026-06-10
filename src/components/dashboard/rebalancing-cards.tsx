@@ -16,9 +16,12 @@ import type { Holding, RedistributionResponse } from "@/lib/types";
 export function RebalancingCards({
   redistribution,
   holdings,
+  onSelect,
 }: {
   redistribution: RedistributionResponse;
   holdings: Holding[];
+  /** Open the full analysis drawer for a ticker (held or research). */
+  onSelect?: (ticker: string) => void;
 }) {
   const { recommendations, summary } = redistribution;
   const sells = recommendations.filter((r) => r.action === "SELL" || r.action === "TRIM");
@@ -62,7 +65,15 @@ export function RebalancingCards({
                   ) : (
                     <Scissors className="h-3 w-3" />
                   )}
-                  {s.action} {s.ticker}
+                  {s.action}{" "}
+                  <span
+                    role={onSelect ? "button" : undefined}
+                    onClick={onSelect ? () => onSelect(s.ticker) : undefined}
+                    className={onSelect ? "cursor-pointer underline-offset-2 hover:underline" : undefined}
+                    title={onSelect ? "Open full analysis" : undefined}
+                  >
+                    {s.ticker}
+                  </span>
                 </Badge>
                 <span className="text-sm text-muted-foreground">
                   — {s.shares} shares @ {formatUsd(s.estimatedPrice)}
@@ -107,7 +118,15 @@ export function RebalancingCards({
               <div className="mb-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Badge variant="positive" className="gap-1">
-                    <ArrowDownToLine className="h-3 w-3" /> {b.ticker}
+                    <ArrowDownToLine className="h-3 w-3" />{" "}
+                    <span
+                      role={onSelect ? "button" : undefined}
+                      onClick={onSelect ? () => onSelect(b.ticker) : undefined}
+                      className={onSelect ? "cursor-pointer underline-offset-2 hover:underline" : undefined}
+                      title={onSelect ? "Open full analysis" : undefined}
+                    >
+                      {b.ticker}
+                    </span>
                   </Badge>
                   <span className="text-xs text-muted-foreground">
                     {Math.round((b.estimatedProceedsOrCost / totalInvested) * 100)}% of proceeds (

@@ -22,6 +22,37 @@ export const SECTOR_BY_TICKER: Record<string, string> = {
   META: "AI / Social",
   AXON: "Defense / SaaS",
   ARM: "Semiconductors",
+  // Screen universe — semis
+  MU: "Semiconductors",
+  INTC: "Semiconductors",
+  LRCX: "Semiconductors",
+  AMAT: "Semiconductors",
+  KLAC: "Semiconductors",
+  MRVL: "Semiconductors",
+  TXN: "Semiconductors",
+  ADI: "Semiconductors",
+  ASML: "Semiconductors",
+  NXPI: "Semiconductors",
+  QCOM: "Semiconductors",
+  // Screen universe — software / security
+  ADBE: "Software",
+  INTU: "Software",
+  WDAY: "Software",
+  SNPS: "Software",
+  CDNS: "Software",
+  DDOG: "Software",
+  TEAM: "Software",
+  PANW: "Cloud Security",
+  FTNT: "Cloud Security",
+  ZS: "Cloud Security",
+  // Screen universe — internet / consumer
+  NFLX: "Internet / Media",
+  BKNG: "Internet / Travel",
+  ABNB: "Internet / Travel",
+  MELI: "Internet / E-commerce",
+  PDD: "Internet / E-commerce",
+  AAPL: "Consumer Tech",
+  COST: "Consumer / Retail",
 };
 
 export function sectorFor(ticker: string): string {

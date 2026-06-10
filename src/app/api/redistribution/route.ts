@@ -14,7 +14,8 @@ export async function GET() {
       getMarketRegime().catch(() => null),
     ]);
     const candidates = await buildNewPositionCandidates(
-      regime?.regime === "risk_off"
+      regime?.regime === "risk_off",
+      portfolio
     );
     const plan = toAudRedistribution(
       buildRedistribution(portfolio, {
