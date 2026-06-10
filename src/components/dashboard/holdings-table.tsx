@@ -133,9 +133,20 @@ export function HoldingsTable({
               {h.score}
             </TableCell>
             <TableCell>
-              <Badge variant={signalToVariant(h.signal)}>
-                {STATUS_LABELS[h.signal]}
-              </Badge>
+              <span className="inline-flex items-center gap-1">
+                <Badge variant={signalToVariant(h.signal)}>
+                  {STATUS_LABELS[h.signal]}
+                </Badge>
+                {h.dataQuality === "degraded" && (
+                  <Badge
+                    variant="warning"
+                    className="text-[9px]"
+                    title="Live data unavailable for this stock — signal forced to HOLD; excluded from recommendations and alerts."
+                  >
+                    DEGRADED
+                  </Badge>
+                )}
+              </span>
             </TableCell>
             <TableCell onClick={(e) => e.stopPropagation()}>
               {onAction ? (

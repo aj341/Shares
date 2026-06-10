@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   AlertTriangle,
   Bell,
+  CalendarClock,
   ChevronDown,
   Eye,
   Newspaper,
@@ -22,6 +23,7 @@ const KIND_ICON: Record<PortfolioAlert["kind"], typeof Bell> = {
   high_impact_news: Newspaper,
   near_cap: Layers,
   watchlist_entry: Eye,
+  earnings_imminent: CalendarClock,
 };
 
 const SEV_RANK: Record<PortfolioAlert["severity"], number> = {

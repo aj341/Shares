@@ -86,6 +86,16 @@ export type StockVerdict = {
   researchStatus: ResearchStatus;
 };
 
+/**
+ * Provenance of the data behind a holding's score/signal.
+ * - "live": real quote + real computed metrics.
+ * - "degraded": app is in live mode but a real feed failed; mock/stale values
+ *   are shown for display ONLY — the holding is forced to HOLD and excluded
+ *   from trade recommendations and alerts.
+ * - "mock": the whole app is in mock mode (no API keys, dev).
+ */
+export type DataQuality = "live" | "degraded" | "mock";
+
 export type Holding = {
   ticker: string;
   companyName: string;
@@ -93,6 +103,7 @@ export type Holding = {
   entryPrice: number;
   currentPrice: number;
   dayChangePct: number;
+  dataQuality: DataQuality;
   costBasis: number;
   marketValue: number;
   unrealisedPnl: number;
@@ -533,7 +544,8 @@ export type PortfolioAlert = {
     | "rsi_extreme"
     | "high_impact_news"
     | "near_cap"
-    | "watchlist_entry";
+    | "watchlist_entry"
+    | "earnings_imminent";
   message: string;
   severity: "info" | "warning" | "critical";
 };

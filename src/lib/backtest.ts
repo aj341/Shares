@@ -1,13 +1,15 @@
 import "server-only";
 import { buildPortfolio } from "@/lib/portfolio";
 import { getPool, isDatabaseConfigured, query } from "@/lib/db";
+import { getStockHistory, type MboumCandle } from "@/lib/mboum";
 
 /**
- * Score snapshots + lightweight forward-return backtesting.
+ * Score snapshots + fixed-horizon, benchmark-relative backtesting.
  *
  * On each capture we persist one row per holding (ticker, score, signal, price).
- * Over time these rows let us estimate how each signal "performed" by comparing
- * the price at snapshot time to the most recent price for the same ticker.
+ * Once snapshots age past a horizon (5/21/63 trading days) we measure each one's
+ * forward return — snapshot price to the close N trading days later — minus
+ * QQQ's return over the same window, then aggregate per signal band.
  *
  * NOTE: NUMERIC columns come back from pg as STRINGS — every numeric read is
  * wrapped in Number().
@@ -76,21 +78,59 @@ type SnapshotRow = {
   ticker: string;
   signal: string;
   price: string; // NUMERIC → string from pg
-  captured_at: string;
+  captured_at: string | Date; // TIMESTAMPTZ → Date (or string) from pg
 };
 
-type SignalPerformance = {
-  signal: string;
+/** Fixed evaluation horizons in TRADING days (≈ 1 week / 1 month / 3 months). */
+export const BACKTEST_HORIZONS = [5, 21, 63] as const;
+
+/** Aggregate stats for one signal band at one horizon. */
+export type HorizonStats = {
+  /** Mean of (stock forward return % − QQQ forward return %) over the window. */
+  meanExcessPct: number;
+  /** Number of snapshots old enough to have a full window at this horizon. */
   samples: number;
-  avgForwardReturnPct: number | null;
+  /** Share of samples with positive excess return, as a 0–100 percentage. */
+  hitRatePct: number;
 };
+
+export type SignalPerformance = {
+  signal: string;
+  /** Stats aligned index-for-index with BACKTEST_HORIZONS; null = no matured samples. */
+  horizons: (HorizonStats | null)[];
+};
+
+/** Canonical display order for signal bands; unknown signals sort last. */
+const SIGNAL_ORDER = ["STRONG_BUY", "BUY", "HOLD", "TRIM", "SELL"];
+
+/** Index of the last candle dated on-or-before `date` (YYYY-MM-DD), or -1. */
+function indexOnOrBefore(candles: MboumCandle[], date: string): number {
+  let lo = 0;
+  let hi = candles.length - 1;
+  let ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (candles[mid].date <= date) {
+      ans = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return ans;
+}
 
 /**
- * Best-effort forward-return backtest. For each historical snapshot, compute the
- * price return from that snapshot to the LATEST snapshot of the same ticker, then
- * group by the signal recorded at snapshot time and average the returns.
+ * Fixed-horizon, benchmark-relative backtest.
  *
- * Returns [] when there are fewer than 2 snapshots overall (nothing to compare).
+ * For each snapshot and each horizon N in BACKTEST_HORIZONS, compute the stock's
+ * forward return from the snapshot's stored price to its close N trading days
+ * after the snapshot date, minus QQQ's return over the same window. Snapshots
+ * without N full trading days of history after them are skipped (no shorter
+ * windows). Results are aggregated per signal band per horizon.
+ *
+ * Returns [] when no database is configured, there are no snapshots, or the
+ * QQQ benchmark series is unavailable.
  */
 export async function getSignalPerformance(): Promise<SignalPerformance[]> {
   if (!isDatabaseConfigured()) return [];
@@ -103,50 +143,95 @@ export async function getSignalPerformance(): Promise<SignalPerformance[]> {
       ORDER BY ticker, captured_at ASC`
   );
 
-  if (rows.length < 2) return [];
+  if (rows.length === 0) return [];
 
-  // Group rows by ticker (already ordered by captured_at ASC within ticker).
-  const byTicker = new Map<string, SnapshotRow[]>();
+  // One candle fetch per distinct ticker plus one for the benchmark, cached
+  // for this run and fetched concurrently.
+  const tickers = [...new Set(rows.map((r) => r.ticker))];
+  const candleCache = new Map<string, MboumCandle[]>();
+  await Promise.all(
+    [...tickers, "QQQ"].map(async (ticker) => {
+      candleCache.set(ticker, await getStockHistory(ticker, { monthsBack: 12 }));
+    })
+  );
+
+  const qqq = candleCache.get("QQQ") ?? [];
+  if (qqq.length === 0) return []; // no benchmark → no honest excess returns
+
+  // acc[signal][horizonIdx] = running aggregate of excess returns.
+  const acc = new Map<
+    string,
+    { sum: number; count: number; positive: number }[]
+  >();
+
   for (const row of rows) {
-    const list = byTicker.get(row.ticker);
-    if (list) list.push(row);
-    else byTicker.set(row.ticker, [row]);
-  }
+    const candles = candleCache.get(row.ticker) ?? [];
+    if (candles.length === 0) continue;
 
-  // Accumulate forward returns per signal.
-  const acc = new Map<string, { sum: number; count: number }>();
+    const snapPrice = Number(row.price);
+    if (!Number.isFinite(snapPrice) || snapPrice <= 0) continue;
 
-  for (const list of byTicker.values()) {
-    if (list.length < 2) continue;
-    const latest = list[list.length - 1];
-    const latestPrice = Number(latest.price);
-    if (!Number.isFinite(latestPrice) || latestPrice <= 0) continue;
+    // Match the snapshot date to the nearest candle on-or-before it, in both
+    // the stock's series and the benchmark's.
+    const snapDate = new Date(row.captured_at).toISOString().slice(0, 10);
+    const startIdx = indexOnOrBefore(candles, snapDate);
+    const qqqStartIdx = indexOnOrBefore(qqq, snapDate);
+    if (startIdx < 0 || qqqStartIdx < 0) continue;
 
-    // Every snapshot before the latest gets a forward return to the latest price.
-    for (let i = 0; i < list.length - 1; i++) {
-      const snap = list[i];
-      const snapPrice = Number(snap.price);
-      if (!Number.isFinite(snapPrice) || snapPrice <= 0) continue;
+    const qqqStart = qqq[qqqStartIdx].close;
+    if (!Number.isFinite(qqqStart) || qqqStart <= 0) continue;
 
-      const forwardReturnPct = ((latestPrice - snapPrice) / snapPrice) * 100;
-      const bucket = acc.get(snap.signal) ?? { sum: 0, count: 0 };
-      bucket.sum += forwardReturnPct;
-      bucket.count += 1;
-      acc.set(snap.signal, bucket);
+    let buckets = acc.get(row.signal);
+    if (!buckets) {
+      buckets = BACKTEST_HORIZONS.map(() => ({
+        sum: 0,
+        count: 0,
+        positive: 0,
+      }));
+      acc.set(row.signal, buckets);
     }
-  }
 
-  const result: SignalPerformance[] = [];
-  for (const [signal, { sum, count }] of acc.entries()) {
-    result.push({
-      signal,
-      samples: count,
-      avgForwardReturnPct:
-        count > 0 ? Math.round((sum / count) * 100) / 100 : null,
+    BACKTEST_HORIZONS.forEach((horizon, h) => {
+      const endIdx = startIdx + horizon;
+      const qqqEndIdx = qqqStartIdx + horizon;
+      // Skip horizons the snapshot hasn't aged past — never use a shorter window.
+      if (endIdx >= candles.length || qqqEndIdx >= qqq.length) return;
+
+      const stockReturnPct =
+        ((candles[endIdx].close - snapPrice) / snapPrice) * 100;
+      const qqqReturnPct = ((qqq[qqqEndIdx].close - qqqStart) / qqqStart) * 100;
+      const excessPct = stockReturnPct - qqqReturnPct;
+      if (!Number.isFinite(excessPct)) return;
+
+      const bucket = buckets[h];
+      bucket.sum += excessPct;
+      bucket.count += 1;
+      if (excessPct > 0) bucket.positive += 1;
     });
   }
 
-  // Stable, readable ordering: most-sampled signals first.
-  result.sort((a, b) => b.samples - a.samples);
+  const result: SignalPerformance[] = [];
+  for (const [signal, buckets] of acc.entries()) {
+    const horizons = buckets.map((b) =>
+      b.count > 0
+        ? {
+            meanExcessPct: Math.round((b.sum / b.count) * 100) / 100,
+            samples: b.count,
+            hitRatePct: Math.round((b.positive / b.count) * 100),
+          }
+        : null
+    );
+    // Drop signal bands with no matured samples at any horizon.
+    if (horizons.every((h) => h === null)) continue;
+    result.push({ signal, horizons });
+  }
+
+  // Stable, readable ordering: canonical signal bands first, unknowns last.
+  result.sort((a, b) => {
+    const ai = SIGNAL_ORDER.indexOf(a.signal);
+    const bi = SIGNAL_ORDER.indexOf(b.signal);
+    return (ai === -1 ? SIGNAL_ORDER.length : ai) -
+      (bi === -1 ? SIGNAL_ORDER.length : bi);
+  });
   return result;
 }

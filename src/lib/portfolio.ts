@@ -14,7 +14,7 @@ import { getDerivedPortfolio } from "@/lib/portfolio-derivation";
 import { computeLiveMetrics } from "@/lib/live-metrics";
 import { buildLiveVerdict } from "@/lib/verdict";
 import { enhanceVerdict, getCachedEnhancedVerdict } from "@/lib/verdict-llm";
-import { isMboumConfigured } from "@/lib/mboum";
+import { getStockHistory, isMboumConfigured } from "@/lib/mboum";
 import * as finnhub from "@/lib/finnhub";
 import type {
   Announcement,
@@ -34,17 +34,38 @@ import type {
  * see a consistent snapshot.
  */
 
-type Quote = { currentPrice: number; dayChangePct: number };
+type Quote = {
+  currentPrice: number;
+  dayChangePct: number;
+  /** True when the price came from a real feed (Finnhub, or Mboum last close). */
+  real: boolean;
+};
 
 async function getQuoteFor(ticker: string, source: DataSource): Promise<Quote> {
   if (source === "finnhub") {
     const q = await finnhub.getQuote(ticker);
     if (q && q.c > 0) {
-      return { currentPrice: q.c, dayChangePct: q.dp ?? 0 };
+      return { currentPrice: q.c, dayChangePct: q.dp ?? 0, real: true };
+    }
+    // Finnhub failed: prefer a REAL (slightly stale) Mboum close over mock.
+    if (isMboumConfigured()) {
+      const candles = await getStockHistory(ticker, { interval: "1d", days: 10 }).catch(
+        () => []
+      );
+      if (candles.length > 0) {
+        const last = candles[candles.length - 1];
+        const prev = candles.length > 1 ? candles[candles.length - 2] : null;
+        return {
+          currentPrice: last.close,
+          dayChangePct: prev ? ((last.close - prev.close) / prev.close) * 100 : 0,
+          real: true,
+        };
+      }
     }
   }
-  // Mock fallback (also used when a live call returns nothing).
-  return MOCK_QUOTES[ticker] ?? { currentPrice: 0, dayChangePct: 0 };
+  // Mock fallback — flagged so the holding is marked degraded in live mode.
+  const mock = MOCK_QUOTES[ticker] ?? { currentPrice: 0, dayChangePct: 0 };
+  return { ...mock, real: false };
 }
 
 /** Replace the "Position size vs 35% cap" metric with one reflecting live weight. */
@@ -157,12 +178,20 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       ? liveAnnouncements[i]
       : getAnnouncements(b.position.ticker);
 
-    const { score, signal } = scoreHolding(metrics, {
+    // Data provenance: in live mode, a holding whose quote or metrics fell
+    // back to mock is "degraded" — display-only, never actionable.
+    const dataQuality: Holding["dataQuality"] =
+      source === "mock" ? "mock" : quotes[i].real && liveMetrics ? "live" : "degraded";
+
+    const scored = scoreHolding(metrics, {
       rsi: extractRsi(metrics),
       unrealisedPnlPct: b.unrealisedPnlPct,
       portfolioWeight,
       minAnnouncementImpact: minAnnouncementImpact(announcements),
     });
+    const score = scored.score;
+    // SAFETY: mock-derived metrics must never express conviction in live mode.
+    const signal = dataQuality === "degraded" ? "HOLD" : scored.signal;
 
     // Verdict derived from live metrics + news; if a cached Claude-deepened
     // verdict exists use it, otherwise serve the deterministic one now and warm
@@ -201,6 +230,7 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       entryPrice: b.position.entryPrice,
       currentPrice: b.currentPrice,
       dayChangePct: b.dayChangePct,
+      dataQuality,
       costBasis: round2(b.costBasis),
       marketValue: round2(b.marketValue),
       unrealisedPnl: round2(b.unrealisedPnl),

@@ -9,22 +9,50 @@ import { signalToVariant, signedTextClass } from "@/lib/ui";
 import { STATUS_LABELS } from "@/lib/constants";
 import type { Signal } from "@/lib/types";
 
+/** Aggregate stats for one signal × horizon cell, mirroring getSignalPerformance(). */
+type HorizonStats = {
+  meanExcessPct: number;
+  samples: number;
+  hitRatePct: number;
+};
+
 /** One row of backtested signal performance, mirroring getSignalPerformance(). */
 type SignalPerformanceRow = {
   signal: string;
-  samples: number;
-  avgForwardReturnPct: number | null;
+  /** Aligned with HORIZON_LABELS (5 / 21 / 63 trading days); null = no matured samples. */
+  horizons: (HorizonStats | null)[];
 };
+
+/** Display labels for the fixed 5 / 21 / 63 trading-day horizons. */
+const HORIZON_LABELS = ["1W", "1M", "3M"] as const;
 
 /** Recognised signals get a labelled, colour-mapped badge; anything else falls back to raw text. */
 function isKnownSignal(signal: string): signal is Signal {
   return signal in STATUS_LABELS;
 }
 
-function formatForwardReturn(pct: number | null): string {
-  if (pct === null) return "—";
+function formatExcess(pct: number): string {
   const sign = pct > 0 ? "+" : "";
   return `${sign}${pct.toFixed(2)}%`;
+}
+
+function HorizonCell({ stats }: { stats: HorizonStats | null }) {
+  if (stats === null) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  return (
+    <span title={`Hit rate ${stats.hitRatePct}%`}>
+      <span
+        className={cn(
+          "font-mono-nums font-medium",
+          signedTextClass(stats.meanExcessPct)
+        )}
+      >
+        {formatExcess(stats.meanExcessPct)}
+      </span>{" "}
+      <span className="text-xs text-muted-foreground">(n={stats.samples})</span>
+    </span>
+  );
 }
 
 export function SignalPerformance() {
@@ -53,7 +81,7 @@ export function SignalPerformance() {
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-sm">
           <LineChart className="h-4 w-4 text-muted-foreground" />
-          Signal Performance
+          Signal Performance vs QQQ
         </CardTitle>
       </CardHeader>
       <CardContent className="text-sm">
@@ -63,43 +91,47 @@ export function SignalPerformance() {
           <p className="text-muted-foreground">Loading…</p>
         ) : rows.length === 0 ? (
           <p className="text-muted-foreground">
-            Collecting data — signal performance appears once a few daily snapshots accumulate.
+            No matured samples yet — results accumulate as daily snapshots age
+            past each horizon (1 week, 1 month, 3 months).
           </p>
         ) : (
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs uppercase tracking-wide text-muted-foreground">
-              <span>Signal</span>
-              <span className="flex items-center gap-4">
-                <span>Samples</span>
-                <span>Avg fwd return</span>
-              </span>
-            </div>
-            {rows.map((row) => (
-              <div key={row.signal} className="flex items-center justify-between">
-                {isKnownSignal(row.signal) ? (
-                  <Badge variant={signalToVariant(row.signal)}>
-                    {STATUS_LABELS[row.signal]}
-                  </Badge>
-                ) : (
-                  <span className="font-medium">{row.signal}</span>
-                )}
-                <span className="flex items-center gap-4">
-                  <span className="font-mono-nums text-muted-foreground">
-                    {row.samples}
-                  </span>
-                  <span
-                    className={cn(
-                      "font-mono-nums font-medium",
-                      row.avgForwardReturnPct === null
-                        ? "text-muted-foreground"
-                        : signedTextClass(row.avgForwardReturnPct)
-                    )}
-                  >
-                    {formatForwardReturn(row.avgForwardReturnPct)}
-                  </span>
-                </span>
-              </div>
-            ))}
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="pb-2 font-medium">Signal</th>
+                  {HORIZON_LABELS.map((label) => (
+                    <th key={label} className="pb-2 text-right font-medium">
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.signal}>
+                    <td className="py-1">
+                      {isKnownSignal(row.signal) ? (
+                        <Badge variant={signalToVariant(row.signal)}>
+                          {STATUS_LABELS[row.signal]}
+                        </Badge>
+                      ) : (
+                        <span className="font-medium">{row.signal}</span>
+                      )}
+                    </td>
+                    {HORIZON_LABELS.map((label, h) => (
+                      <td key={label} className="py-1 text-right">
+                        <HorizonCell stats={row.horizons[h] ?? null} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-xs text-muted-foreground">
+              Forward returns minus QQQ over the same window. Small samples —
+              indicative only.
+            </p>
           </div>
         )}
       </CardContent>

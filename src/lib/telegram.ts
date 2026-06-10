@@ -33,7 +33,12 @@ const DEDUPE_HOURS = 18;
 
 /** State alerts dedupe by condition; event alerts dedupe by exact text. */
 function alertKey(a: PortfolioAlert): string {
-  const stateKinds = new Set(["rsi_extreme", "near_cap", "watchlist_entry"]);
+  const stateKinds = new Set([
+    "rsi_extreme",
+    "near_cap",
+    "watchlist_entry",
+    "earnings_imminent",
+  ]);
   return stateKinds.has(a.kind)
     ? `${a.kind}:${a.ticker}`
     : `${a.kind}:${a.ticker}:${a.message}`;

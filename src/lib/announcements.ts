@@ -5,6 +5,7 @@ import {
   type AnalystView,
 } from "@/lib/mock-data";
 import * as finnhub from "@/lib/finnhub";
+import { headlineKey, triageHeadlines } from "@/lib/news-triage";
 import type {
   Announcement,
   AnnouncementType,
@@ -77,7 +78,7 @@ export async function getLiveAnnouncements(ticker: string): Promise<Announcement
   const pool = relevant.length > 0 ? relevant : news;
 
   const seen = new Set<string>();
-  return pool
+  const announcements = pool
     .filter((n) => n.headline && (seen.has(n.headline) ? false : (seen.add(n.headline), true)))
     .sort((a, b) => b.datetime - a.datetime)
     .slice(0, 8)
@@ -95,6 +96,24 @@ export async function getLiveAnnouncements(ticker: string): Promise<Announcement
         impactScore,
       };
     });
+
+  // LLM triage (cached per headline) replaces the regex score wherever it
+  // succeeds — the regex above is only the fallback. This score gates the
+  // score-cap override and the FULL_SELL trigger, so accuracy matters.
+  const triaged = await triageHeadlines(
+    ticker,
+    announcements.map((a) => ({ url: a.url, title: a.title, summary: a.summary }))
+  ).catch(() => null);
+  if (triaged) {
+    for (const a of announcements) {
+      const t = triaged.get(headlineKey(a.url, a.title));
+      if (t) {
+        a.impactScore = t.impactScore;
+        a.impact = t.impactScore > 0 ? "positive" : t.impactScore < 0 ? "negative" : "neutral";
+      }
+    }
+  }
+  return announcements;
 }
 
 export function getVerdict(ticker: string): StockVerdict {

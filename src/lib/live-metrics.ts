@@ -25,6 +25,18 @@ type Cell = [string | number, StatusTone];
 const CACHE = new Map<string, { metrics: Metric[]; ts: number }>();
 const TTL_MS = 10 * 60 * 1000;
 
+// QQQ benchmark closes, fetched once and cached in-module (same TTL pattern
+// as the per-ticker metrics cache) so every holding shares one benchmark call.
+let QQQ_CACHE: { closes: number[]; ts: number } | null = null;
+
+async function getQqqCloses(): Promise<number[]> {
+  if (QQQ_CACHE && Date.now() - QQQ_CACHE.ts < TTL_MS) return QQQ_CACHE.closes;
+  const candles = await getStockHistory("QQQ", { interval: "1d", monthsBack: 13 });
+  const closes = candles.map((c) => c.close);
+  if (closes.length > 0) QQQ_CACHE = { closes, ts: Date.now() };
+  return closes;
+}
+
 // --- TA helpers -------------------------------------------------------------
 
 function sma(a: number[], p: number): number | null {
@@ -97,7 +109,7 @@ export async function computeLiveMetrics(
   const cached = CACHE.get(ticker);
   if (cached && Date.now() - cached.ts < TTL_MS) return cached.metrics;
 
-  const [candles, targets, stats, fin, earnings, valCtx, revision] = await Promise.all([
+  const [candles, targets, stats, fin, earnings, valCtx, revision, qqqCloses] = await Promise.all([
     getStockHistory(ticker, { interval: "1d", monthsBack: 13 }),
     getPriceTargets(ticker),
     getKeyStats(ticker),
@@ -105,6 +117,7 @@ export async function computeLiveMetrics(
     getEarningsSurprise(ticker),
     getValuationContext(ticker),
     getRevisionTrend(ticker),
+    getQqqCloses(),
   ]);
 
   const closes = candles.map((c) => c.close);
@@ -138,19 +151,39 @@ export async function computeLiveMetrics(
   const debt = fin?.totalDebt ?? null;
   const newsNet = newsImpacts.reduce((a, b) => a + b, 0);
 
+  // Relative strength vs QQQ over ~3 months (63 trading days).
+  const REL_LOOKBACK = 63;
+  let relDiff: number | null = null;
+  if (closes.length > REL_LOOKBACK && qqqCloses.length > REL_LOOKBACK) {
+    const stockRet = price / closes[closes.length - 1 - REL_LOOKBACK] - 1;
+    const qqqRet =
+      qqqCloses[qqqCloses.length - 1] /
+        qqqCloses[qqqCloses.length - 1 - REL_LOOKBACK] -
+      1;
+    relDiff = stockRet - qqqRet;
+  }
+
+  // Volume trend: 20d average volume vs 60d average volume.
+  const vol20 = sma(volumes, 20);
+  const vol60 = sma(volumes, 60);
+  const volRatio = vol20 != null && vol60 != null && vol60 > 0 ? vol20 / vol60 : null;
+
   const tri = (x: number, lo: number, hi: number): StatusTone =>
     x >= hi ? "positive" : x <= lo ? "negative" : "neutral";
 
   const cells: Cell[] = [
-    // 0 — 20d vs 50d MA
-    ma20 != null && ma50 != null
-      ? [pct(ma20 / ma50 - 1), tri(ma20 / ma50 - 1, -0.005, 0.005)]
-      : ["—", "neutral"],
-    // 1 — 50d vs 200d MA
-    ma50 != null && ma200 != null
+    // 0 — relative strength vs QQQ (3-month return differential)
+    relDiff != null
       ? [
-          ma50 >= ma200 ? "Golden-cross" : "Death-cross",
-          ma50 >= ma200 ? "positive" : "negative",
+          `${pct(relDiff)} vs QQQ`,
+          relDiff > 0.02 ? "positive" : relDiff < -0.02 ? "negative" : "neutral",
+        ]
+      : ["—", "neutral"],
+    // 1 — volume trend: 20d avg vol vs 60d, confirmed by price vs 20d MA
+    volRatio != null && ma20 != null
+      ? [
+          `${volRatio.toFixed(1)}× avg vol`,
+          volRatio > 1.15 ? (price >= ma20 ? "positive" : "negative") : "neutral",
         ]
       : ["—", "neutral"],
     // 2 — price vs 52w range

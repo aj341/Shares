@@ -2,6 +2,7 @@ import "server-only";
 import { buildPortfolio } from "@/lib/portfolio";
 import { ensureSnapshotSchema } from "@/lib/backtest";
 import { buildWatchlist } from "@/lib/watchlist";
+import { getUpcomingEvents } from "@/lib/events";
 import { isDatabaseConfigured, query } from "@/lib/db";
 import type { Holding, PortfolioAlert } from "@/lib/types";
 
@@ -18,6 +19,7 @@ const POSITION_CAP_PCT = 33;
 const RSI_OVERBOUGHT = 75;
 const RSI_OVERSOLD = 30;
 const NEWS_IMPACT_THRESHOLD = 2;
+const EARNINGS_ALERT_DAYS = 7;
 
 type PriorSignalRow = { ticker: string; signal: string };
 
@@ -55,13 +57,30 @@ export async function computeAlerts(): Promise<PortfolioAlert[]> {
     getPriorSignals(),
     buildWatchlist().catch(() => null),
   ]);
+  const events = await getUpcomingEvents(
+    portfolio.holdings.map((h) => h.ticker)
+  ).catch(() => []);
+
+  // Nearest upcoming earnings per ticker (days away).
+  const nextEarnings = new Map<string, { daysAway: number; detail: string }>();
+  for (const e of events) {
+    if (e.type !== "earnings") continue;
+    const prev = nextEarnings.get(e.ticker);
+    if (!prev || e.daysAway < prev.daysAway) {
+      nextEarnings.set(e.ticker, { daysAway: e.daysAway, detail: e.detail });
+    }
+  }
 
   const alerts: PortfolioAlert[] = [];
 
   for (const holding of portfolio.holdings) {
+    // SAFETY: degraded (mock-fallback) data must not fire signal/price alerts.
+    // High-impact news still passes — headlines are real regardless of quotes.
+    const degraded = holding.dataQuality === "degraded";
+
     // 1. Signal change vs the previous snapshot (only when we have history).
     const prior = priorSignals.get(holding.ticker);
-    if (prior && prior !== holding.signal) {
+    if (!degraded && prior && prior !== holding.signal) {
       alerts.push({
         ticker: holding.ticker,
         kind: "signal_change",
@@ -73,7 +92,7 @@ export async function computeAlerts(): Promise<PortfolioAlert[]> {
     }
 
     // 2. RSI extreme (overbought / oversold).
-    const rsi = readRsi(holding);
+    const rsi = degraded ? null : readRsi(holding);
     if (rsi !== null && (rsi > RSI_OVERBOUGHT || rsi < RSI_OVERSOLD)) {
       const overbought = rsi > RSI_OVERBOUGHT;
       alerts.push({
@@ -99,8 +118,28 @@ export async function computeAlerts(): Promise<PortfolioAlert[]> {
       });
     }
 
-    // 4. Position near / over the concentration cap.
-    if (holding.portfolioWeight >= POSITION_CAP_PCT) {
+    // 4. Earnings imminent — anticipate the binary event instead of reacting.
+    //    Real calendar data, so it fires even for degraded holdings.
+    const earnings = nextEarnings.get(holding.ticker);
+    if (earnings && earnings.daysAway <= EARNINGS_ALERT_DAYS) {
+      const valueAud = holding.marketValue * portfolio.fxUsdToAud;
+      const when =
+        earnings.daysAway <= 0
+          ? "today"
+          : earnings.daysAway === 1
+          ? "tomorrow"
+          : `in ${earnings.daysAway} days`;
+      alerts.push({
+        ticker: holding.ticker,
+        kind: "earnings_imminent",
+        message: `${holding.ticker} reports earnings ${when} (${earnings.detail}). Position is ${holding.portfolioWeight.toFixed(1)}% of the book (≈A$${Math.round(valueAud).toLocaleString("en-AU")}).`,
+        severity: earnings.daysAway <= 2 ? "warning" : "info",
+      });
+    }
+
+    // 5. Position near / over the concentration cap (weight uses the live
+    //    price, so skip when degraded).
+    if (!degraded && holding.portfolioWeight >= POSITION_CAP_PCT) {
       alerts.push({
         ticker: holding.ticker,
         kind: "near_cap",

@@ -30,6 +30,9 @@ type Working = {
 };
 
 function decide(h: Holding): Decision {
+  // SAFETY: never recommend trades off degraded (mock-fallback) data.
+  if (h.dataQuality === "degraded") return "HOLD";
+
   const negAnnouncement = minAnnouncementImpact(h.announcements) <= -2;
 
   // 1. Full sell — broken thesis.

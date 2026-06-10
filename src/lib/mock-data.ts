@@ -59,21 +59,21 @@ type MetricDef = {
 export const METRIC_DEFS: MetricDef[] = [
   // Trend (4)
   {
-    name: "20d MA vs 50d MA",
+    name: "Relative strength vs QQQ (3m)",
     category: "trend",
     desc: {
-      positive: "Short-term average above the 50d — near-term uptrend intact.",
-      neutral: "20d and 50d averages are converging — direction unresolved.",
-      negative: "20d average has crossed below the 50d — near-term weakness.",
+      positive: "Outperforming QQQ by >2pts over ~3 months — market leadership.",
+      neutral: "Tracking QQQ over ~3 months — in line with the index.",
+      negative: "Lagging QQQ by >2pts over ~3 months — relative weakness.",
     },
   },
   {
-    name: "50d MA vs 200d MA",
+    name: "Volume trend (20d vs 60d)",
     category: "trend",
     desc: {
-      positive: "Golden-cross posture — primary trend is constructive.",
-      neutral: "50d hovering around the 200d — no decisive primary trend.",
-      negative: "Death-cross posture — primary trend is deteriorating.",
+      positive: "Rising volume with price above its 20d MA — accumulation.",
+      neutral: "Volume tracking its 60-day base — no conviction signal.",
+      negative: "Rising volume with price below its 20d MA — distribution.",
     },
   },
   {
@@ -254,7 +254,7 @@ type Cell = [string | number, StatusTone];
 
 const METRIC_TABLE: Record<string, Cell[]> = {
   MSFT: [
-    ["+2.1%", "positive"], ["+6.4%", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
+    ["+4.8% vs QQQ", "positive"], ["1.3× avg vol", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
     [61, "positive"], ["Bullish cross", "positive"], ["1.1x avg", "neutral"], ["+4.2%", "positive"],
     ["+11.4%", "positive"], ["Peer median", "neutral"], ["4 beats", "positive"], ["Stable", "neutral"],
     ["+14% YoY", "positive"], ["Expanding", "positive"], ["Net cash", "positive"],
@@ -262,7 +262,7 @@ const METRIC_TABLE: Record<string, Cell[]> = {
     ["Positive", "positive"], ["Upward", "positive"],
   ],
   RBLX: [
-    ["-1.4%", "negative"], ["-2.0%", "negative"], ["Lower third", "negative"], ["Lower highs", "negative"],
+    ["-7.2% vs QQQ", "negative"], ["1.2× avg vol", "negative"], ["Lower third", "negative"], ["Lower highs", "negative"],
     [42, "neutral"], ["Bearish cross", "negative"], ["0.8x avg", "negative"], ["-9.1%", "negative"],
     ["+18.2%", "positive"], ["Rich", "negative"], ["Mixed", "neutral"], ["Expanding", "negative"],
     ["+29% YoY", "positive"], ["Improving", "positive"], ["Net cash", "positive"],
@@ -270,7 +270,7 @@ const METRIC_TABLE: Record<string, Cell[]> = {
     ["Negative", "negative"], ["Downward", "negative"],
   ],
   GOOGL: [
-    ["+1.6%", "positive"], ["+5.1%", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
+    ["+3.9% vs QQQ", "positive"], ["1.2× avg vol", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
     [58, "positive"], ["Bullish cross", "positive"], ["1.0x avg", "neutral"], ["+3.0%", "positive"],
     ["+9.1%", "positive"], ["Below history", "positive"], ["3 beats", "positive"], ["Stable", "neutral"],
     ["+13% YoY", "positive"], ["Expanding", "positive"], ["Net cash", "positive"],
@@ -279,7 +279,7 @@ const METRIC_TABLE: Record<string, Cell[]> = {
   ],
   // Class C (GOOG) tracks the same underlying business as Class A (GOOGL).
   GOOG: [
-    ["+1.6%", "positive"], ["+5.1%", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
+    ["+3.9% vs QQQ", "positive"], ["1.2× avg vol", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
     [58, "positive"], ["Bullish cross", "positive"], ["1.0x avg", "neutral"], ["+3.0%", "positive"],
     ["+9.1%", "positive"], ["Below history", "positive"], ["3 beats", "positive"], ["Stable", "neutral"],
     ["+13% YoY", "positive"], ["Expanding", "positive"], ["Net cash", "positive"],
@@ -287,7 +287,7 @@ const METRIC_TABLE: Record<string, Cell[]> = {
     ["Positive", "positive"], ["Upward", "positive"],
   ],
   PLTR: [
-    ["+3.4%", "positive"], ["+8.9%", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
+    ["+12.4% vs QQQ", "positive"], ["1.6× avg vol", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
     [79, "negative"], ["Bullish cross", "positive"], ["1.6x avg", "positive"], ["+22.0%", "positive"],
     ["-6.5%", "negative"], ["Very rich", "negative"], ["4 beats", "positive"], ["Expanding", "negative"],
     ["+27% YoY", "positive"], ["Expanding", "positive"], ["Net cash", "positive"],
@@ -295,7 +295,7 @@ const METRIC_TABLE: Record<string, Cell[]> = {
     ["Positive", "positive"], ["Upward", "positive"],
   ],
   MDB: [
-    ["-0.6%", "negative"], ["+0.4%", "neutral"], ["Mid-range", "neutral"], ["Choppy", "neutral"],
+    ["-3.1% vs QQQ", "negative"], ["1.0× avg vol", "neutral"], ["Mid-range", "neutral"], ["Choppy", "neutral"],
     [46, "neutral"], ["Flat", "neutral"], ["0.9x avg", "neutral"], ["-3.2%", "negative"],
     ["+14.0%", "positive"], ["Peer median", "neutral"], ["Mixed", "neutral"], ["Stable", "neutral"],
     ["+19% YoY", "positive"], ["Flat", "neutral"], ["Net cash", "positive"],
@@ -303,7 +303,7 @@ const METRIC_TABLE: Record<string, Cell[]> = {
     ["Neutral", "neutral"], ["Stable", "neutral"],
   ],
   NBIS: [
-    ["+4.1%", "positive"], ["+10.2%", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
+    ["+18.5% vs QQQ", "positive"], ["1.7× avg vol", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
     [67, "positive"], ["Bullish cross", "positive"], ["1.9x avg", "positive"], ["+13.2%", "positive"],
     ["+22.7%", "positive"], ["Rich", "negative"], ["2 beats", "positive"], ["Expanding", "negative"],
     ["+62% YoY", "positive"], ["Improving", "positive"], ["Net cash", "positive"],

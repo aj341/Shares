@@ -4,7 +4,10 @@ import type { ApiError } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** Signal forward-return backtest derived from accumulated score snapshots. */
+/**
+ * Fixed-horizon (5/21/63 trading days), QQQ-relative signal backtest derived
+ * from accumulated score snapshots. Responds { performance: SignalPerformance[] }.
+ */
 export async function GET() {
   try {
     const performance = await getSignalPerformance();
