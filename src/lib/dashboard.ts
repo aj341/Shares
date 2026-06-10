@@ -5,6 +5,7 @@ import {
   toAudRedistribution,
 } from "@/lib/portfolio";
 import { buildRedistribution } from "@/lib/redistribution";
+import { getMarketRegime } from "@/lib/regime";
 import { buildDisagreementRow } from "@/lib/announcements";
 import { extractRsi, scoreHolding } from "@/lib/scoring";
 import { minAnnouncementImpact } from "@/lib/announcements";
@@ -90,8 +91,14 @@ function buildKpis(portfolio: PortfolioResponse): DashboardKpis {
 /** Aggregate everything for the /api/dashboard endpoint. */
 export async function buildDashboard(): Promise<DashboardResponse> {
   // Engine runs in USD; convert to AUD for display (prices stay USD).
-  const portfolioUsd = await buildPortfolio();
-  const redistributionUsd = buildRedistribution(portfolioUsd);
+  const [portfolioUsd, regime] = await Promise.all([
+    buildPortfolio(),
+    getMarketRegime().catch(() => null),
+  ]);
+  const redistributionUsd = buildRedistribution(portfolioUsd, {
+    targetCashBufferPct: regime?.targetCashBufferPct,
+    regimeLabel: regime?.label,
+  });
 
   const portfolio = toAudPortfolio(portfolioUsd);
   const redistribution = toAudRedistribution(

@@ -75,9 +75,12 @@ function trimShares(h: Holding): number {
 }
 
 export function buildRedistribution(
-  portfolio: PortfolioResponse
+  portfolio: PortfolioResponse,
+  opts: { targetCashBufferPct?: number; regimeLabel?: string } = {}
 ): RedistributionResponse {
   const { holdings, cash, totalPortfolioValue } = portfolio;
+  // Regime-aware dynamic buffer (defaults to the static rule).
+  const bufferPct = opts.targetCashBufferPct ?? targetCashBufferPct;
   const asOf = new Date().toISOString();
 
   // --- Before snapshot (holdings + cash, weights sum to ~100%). ---
@@ -135,8 +138,8 @@ export function buildRedistribution(
     }
   }
 
-  // --- Phase 2: available cash. ARM-sale cash buffer first, then proceeds. ---
-  const targetCash = totalPortfolioValue * targetCashBufferPct;
+  // --- Phase 2: available cash. Regime-aware cash buffer first, then proceeds. ---
+  const targetCash = totalPortfolioValue * bufferPct;
   let availableToInvest = Math.max(0, cash - targetCash) + totalProceeds;
 
   // --- Phase 3: rank BUY candidates and allocate. ---
@@ -221,6 +224,8 @@ export function buildRedistribution(
     maxWeightBefore: round2(maxWeightBefore),
     maxWeightAfter: round2(maxWeight(after)),
     tickersFullySold,
+    targetCashBufferPct: bufferPct,
+    regimeLabel: opts.regimeLabel,
   };
 
   // Order: sells, then trims, then buys.

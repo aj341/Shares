@@ -1,6 +1,7 @@
 import "server-only";
 import { buildPortfolio } from "@/lib/portfolio";
 import { getUpcomingEvents } from "@/lib/events";
+import { getMarketRegime, type MarketRegime } from "@/lib/regime";
 import { getRevisionTrend, type RevisionTrend } from "@/lib/revisions";
 import type {
   BriefWatchItem,
@@ -38,9 +39,10 @@ export async function buildBrief(): Promise<DailyBrief> {
   const portfolio = await buildPortfolio();
   const tickers = portfolio.holdings.map((h) => h.ticker);
 
-  const [events, revisions] = await Promise.all([
+  const [events, revisions, regime] = await Promise.all([
     getUpcomingEvents(tickers).catch(() => []),
     Promise.all(tickers.map((t) => getRevisionTrend(t).catch(() => null))),
+    getMarketRegime().catch(() => null),
   ]);
 
   const catalysts: CatalystItem[] = events.slice(0, MAX_CATALYSTS).map((e) => ({
@@ -64,8 +66,8 @@ export async function buildBrief(): Promise<DailyBrief> {
     nextEarningsInDays: earningsByTicker.get(h.ticker) ?? null,
   }));
 
-  const llm = await synthesizeWithLlm(ctx).catch(() => null);
-  const core = llm ?? heuristicBrief(ctx);
+  const llm = await synthesizeWithLlm(ctx, regime).catch(() => null);
+  const core = llm ?? heuristicBrief(ctx, regime);
 
   const brief: DailyBrief = {
     generatedAt: new Date().toISOString(),
@@ -84,7 +86,7 @@ export async function buildBrief(): Promise<DailyBrief> {
 
 type BriefCore = Pick<DailyBrief, "stance" | "headline" | "summary" | "watchItems">;
 
-function heuristicBrief(ctx: Ctx[]): BriefCore {
+function heuristicBrief(ctx: Ctx[], regime: MarketRegime | null): BriefCore {
   const watchItems: BriefWatchItem[] = [];
 
   for (const c of ctx) {
@@ -132,11 +134,20 @@ function heuristicBrief(ctx: Ctx[]): BriefCore {
   const order = { high: 0, medium: 1, low: 2 };
   watchItems.sort((a, b) => order[a.urgency] - order[b.urgency]);
 
-  // Stance from the balance of signals.
+  // Stance: the MARKET regime leads (holdings' own signals are circular — six
+  // correlated names all sour together, too late); holdings refine within it.
   const buys = ctx.filter((c) => c.holding.signal === "BUY" || c.holding.signal === "STRONG_BUY").length;
   const sells = ctx.filter((c) => c.holding.signal === "SELL" || c.holding.signal === "TRIM").length;
-  const stance: BriefCore["stance"] =
+  const holdingsLean: BriefCore["stance"] =
     buys > sells * 2 ? "risk-on" : sells > buys ? "risk-off" : buys && sells ? "mixed" : "neutral";
+  const stance: BriefCore["stance"] =
+    regime?.regime === "risk_off"
+      ? "risk-off"
+      : regime?.regime === "caution"
+      ? holdingsLean === "risk-on"
+        ? "mixed"
+        : holdingsLean
+      : holdingsLean;
 
   const highCount = watchItems.filter((w) => w.urgency === "high").length;
   const headline = highCount
@@ -149,12 +160,15 @@ function heuristicBrief(ctx: Ctx[]): BriefCore {
     .filter((c) => c.nextEarningsInDays != null)
     .sort((a, b) => (a.nextEarningsInDays! - b.nextEarningsInDays!))[0];
   const summary = [
+    regime ? `${regime.label}.` : "",
     `Signals lean ${stance.replace("-", " ")} (${buys} buy / ${sells} reduce across ${ctx.length} holdings).`,
     nearest
       ? `Next earnings: ${nearest.holding.ticker} in ${nearest.nextEarningsInDays} day${nearest.nextEarningsInDays === 1 ? "" : "s"}.`
       : "No earnings in the next two weeks.",
     watchItems.length ? "See watch items below." : "Nothing flagged as urgent.",
-  ].join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return { stance, headline, summary, watchItems: watchItems.slice(0, 8) };
 }
@@ -201,7 +215,10 @@ Rules:
 - Do not give buy/sell instructions or predict prices — describe what to monitor and why.
 - Keep the summary to 2–4 sentences.`;
 
-async function synthesizeWithLlm(ctx: Ctx[]): Promise<BriefCore | null> {
+async function synthesizeWithLlm(
+  ctx: Ctx[],
+  regime: MarketRegime | null
+): Promise<BriefCore | null> {
   const key = process.env.ANTHROPIC_API_KEY?.trim();
   if (!key || ctx.length === 0) return null;
 
@@ -216,7 +233,10 @@ async function synthesizeWithLlm(ctx: Ctx[]): Promise<BriefCore | null> {
     return `- ${h.ticker} (${h.companyName}): signal ${h.signal}, score ${h.score}, P&L ${h.unrealisedPnlPct.toFixed(1)}%; ${earn}; ${rev}; ${newsStr}`;
   });
 
-  const prompt = `Today's holdings snapshot:\n${lines.join("\n")}\n\nReturn the brief via the return_brief tool.`;
+  const regimeLine = regime
+    ? `MARKET REGIME: ${regime.label} (QQQ ${regime.qqqVs200dmaPct}% vs 200dma, vol percentile ${regime.volPercentile}). Let the regime LEAD the stance — the holdings' own signals are correlated and lag in drawdowns.\n\n`
+    : "";
+  const prompt = `${regimeLine}Today's holdings snapshot:\n${lines.join("\n")}\n\nReturn the brief via the return_brief tool.`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {

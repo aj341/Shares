@@ -157,6 +157,10 @@ export type RedistributionSummary = {
   maxWeightBefore: number;
   maxWeightAfter: number;
   tickersFullySold: string[];
+  /** Regime-aware cash buffer used for this plan (fraction, e.g. 0.05). */
+  targetCashBufferPct?: number;
+  /** Human label of the market regime that set the buffer. */
+  regimeLabel?: string;
 };
 
 // ---------------------------------------------------------------------------

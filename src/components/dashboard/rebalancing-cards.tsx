@@ -135,6 +135,11 @@ export function RebalancingCards({
       <p className="text-center text-xs text-muted-foreground">
         Max weight {formatPct(summary.maxWeightBefore)} → {formatPct(summary.maxWeightAfter)} ·
         Residual cash {formatCurrency(summary.newCashBalance)} held as buffer
+        {summary.targetCashBufferPct != null
+          ? ` (target ${(summary.targetCashBufferPct * 100).toFixed(0)}%${
+              summary.regimeLabel ? ` — ${summary.regimeLabel}` : ""
+            })`
+          : ""}
       </p>
     </div>
   );
