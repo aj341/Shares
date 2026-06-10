@@ -35,6 +35,7 @@ import { AlertsBanner } from "@/components/dashboard/alerts-banner";
 import { SignalPerformance } from "@/components/dashboard/signal-performance";
 import { EventsRadar } from "@/components/dashboard/events-radar";
 import { PortfolioRisk } from "@/components/dashboard/portfolio-risk";
+import { RealizedPnl } from "@/components/dashboard/realized-pnl";
 import { ProvidersBadge } from "@/components/dashboard/providers-badge";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
 import { AnnouncementsFeed } from "@/components/dashboard/announcements-feed";
@@ -408,6 +409,8 @@ function ReadyView({
             <PortfolioRisk />
             <EventsRadar />
           </div>
+
+          <RealizedPnl />
 
           <SignalPerformance />
 

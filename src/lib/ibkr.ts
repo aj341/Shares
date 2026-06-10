@@ -77,8 +77,13 @@ export type IbkrTrade = {
 
 export type IbkrSymbolPerformance = {
   symbol: string;
+  assetCategory: string;
   realizedTotal: number | null;
   unrealizedTotal: number | null;
+  /** Realized P&L on lots held ≤12 months (profit − loss). */
+  realizedShortTerm: number | null;
+  /** Realized P&L on lots held >12 months — CGT-discount relevant. */
+  realizedLongTerm: number | null;
 };
 
 export type IbkrStatement = {
@@ -213,11 +218,21 @@ export async function fetchFlexStatement(): Promise<IbkrStatement> {
     xml,
     "FIFOPerformanceSummaryUnderlying"
   )
-    .map((tag) => ({
-      symbol: (attr(tag, "symbol") ?? attr(tag, "underlyingSymbol") ?? "").toUpperCase(),
-      realizedTotal: num(tag, "realizedTotal") ?? num(tag, "totalRealized"),
-      unrealizedTotal: num(tag, "unrealizedTotal") ?? num(tag, "totalUnrealized"),
-    }))
+    .map((tag) => {
+      const stProfit = num(tag, "realizedSTProfit") ?? 0;
+      const stLoss = num(tag, "realizedSTLoss") ?? 0;
+      const ltProfit = num(tag, "realizedLTProfit") ?? 0;
+      const ltLoss = num(tag, "realizedLTLoss") ?? 0;
+      return {
+        symbol: (attr(tag, "symbol") ?? attr(tag, "underlyingSymbol") ?? "").toUpperCase(),
+        assetCategory: attr(tag, "assetCategory") ?? "",
+        realizedTotal: num(tag, "totalRealizedPnl"),
+        unrealizedTotal: num(tag, "totalUnrealizedPnl"),
+        // IBKR reports Loss fields as magnitudes — net = profit − loss.
+        realizedShortTerm: stProfit - Math.abs(stLoss),
+        realizedLongTerm: ltProfit - Math.abs(ltLoss),
+      };
+    })
     .filter((p) => p.symbol);
 
   // Raw first performance tag — surfaces real attribute names via ?debug=1.
