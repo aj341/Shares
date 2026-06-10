@@ -4,6 +4,7 @@ import { ensureSnapshotSchema } from "@/lib/backtest";
 import { buildWatchlist } from "@/lib/watchlist";
 import { getUpcomingEvents } from "@/lib/events";
 import { getHistoricalEarningsMoves } from "@/lib/earnings-risk";
+import { getImpliedMove } from "@/lib/tradier";
 import { isDatabaseConfigured, query } from "@/lib/db";
 import type { Holding, PortfolioAlert } from "@/lib/types";
 
@@ -142,6 +143,19 @@ export async function computeAlerts(): Promise<PortfolioAlert[]> {
         const riskAud =
           (moveStats.avgAbsMovePct / 100) * valueAud;
         risk = ` Historically moves ±${moveStats.avgAbsMovePct.toFixed(1)}% on earnings (last ${moveStats.samples} prints) — that's ±A$${Math.round(riskAud).toLocaleString("en-AU")} at current size.`;
+      }
+
+      // Forward-looking: options-implied move for the expiry spanning the
+      // print (Tradier; null when unconfigured — alert fires regardless).
+      const printDate = new Date(Date.now() + earnings.daysAway * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const implied = await getImpliedMove(holding.ticker, printDate).catch(
+        () => null
+      );
+      if (implied != null) {
+        const impliedAud = (implied / 100) * valueAud;
+        risk += ` Options currently imply ±${implied.toFixed(1)}% (±A$${Math.round(impliedAud).toLocaleString("en-AU")}).`;
       }
 
       alerts.push({

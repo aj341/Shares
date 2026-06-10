@@ -1,4 +1,5 @@
 import "server-only";
+import { getUpcomingMacroEvents } from "@/lib/macro-events";
 import { FINNHUB_BASE_URL } from "@/lib/constants";
 
 /**
@@ -27,7 +28,7 @@ import { FINNHUB_BASE_URL } from "@/lib/constants";
 
 export type UpcomingEvent = {
   ticker: string;
-  type: "earnings" | "dividend";
+  type: "earnings" | "dividend" | "macro";
   date: string;
   detail: string;
   daysAway: number;
@@ -270,8 +271,16 @@ export async function getUpcomingEvents(
     })
   );
 
-  return perTicker
-    .flat()
+  // Whole-book macro catalysts (FOMC / CPI) ride along with company events.
+  const macro = getUpcomingMacroEvents(HORIZON_DAYS).map((m) => ({
+    ticker: m.ticker,
+    type: "macro" as const,
+    date: m.date,
+    detail: m.detail,
+    daysAway: m.daysAway,
+  }));
+
+  return [...perTicker.flat(), ...macro]
     .sort((a, b) =>
       a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.ticker.localeCompare(b.ticker)
     )
