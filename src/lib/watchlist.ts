@@ -187,6 +187,8 @@ function candidateFromRanking(r: WatchlistRanking): Candidate {
 /** Entry-zone threshold: RSI below this counts as a constructive pullback. */
 const ENTRY_RSI_MAX = 50;
 const MOMENTUM_SLOTS = 5;
+/** Entry-zone picks must still rank in the top ~3/4 of the universe. */
+const ENTRY_MAX_RANK = 30;
 
 /**
  * Candidate list: a BLEND from the latest scan — momentum leaders (watch for
@@ -197,7 +199,9 @@ const MOMENTUM_SLOTS = 5;
 async function resolveCandidates(): Promise<Candidate[]> {
   const total = CANDIDATES.length; // 8 slots
   try {
-    const pool = await getTopRanked(20);
+    // Full ranked universe — entry-zone picks can sit mid-table (a strong
+    // name that pulled back ranks lower on momentum by construction).
+    const pool = await getTopRanked(50);
     if (pool.length > 0) {
       const picked: WatchlistRanking[] = [];
       const taken = new Set<string>();
@@ -206,11 +210,12 @@ async function resolveCandidates(): Promise<Candidate[]> {
         picked.push(r);
         taken.add(r.ticker);
       }
-      // 2. Strong names already pulled back (entry-zone RSI), best rank first.
+      // 2. Strong-enough names already pulled back (entry-zone RSI), best
+      //    rank first — quality cap keeps bottom-decile losers out.
       for (const r of pool) {
         if (picked.length >= total) break;
         if (taken.has(r.ticker)) continue;
-        if (r.rsi14 != null && r.rsi14 < ENTRY_RSI_MAX) {
+        if (r.rank <= ENTRY_MAX_RANK && r.rsi14 != null && r.rsi14 < ENTRY_RSI_MAX) {
           picked.push(r);
           taken.add(r.ticker);
         }
