@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { captureSnapshot } from "@/lib/backtest";
+import { runWatchlistScan } from "@/lib/watchlist-screen";
 import type { ApiError } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 /**
- * Capture a score snapshot of the current portfolio.
- * Intended to be hit by a Railway cron (e.g. daily). No-op without a DB.
+ * Daily housekeeping: capture a score snapshot AND refresh the watchlist
+ * relative-strength rankings (the scan rides along here so it needs no
+ * separate Railway cron entry). Hit by the Railway cron daily.
  *
  * If CRON_SECRET is set, the request must supply ?secret= (or x-cron-secret
  * header) matching it — prevents the public endpoint from being spammed.
@@ -24,7 +27,14 @@ export async function GET(req: NextRequest) {
   }
   try {
     const { captured } = await captureSnapshot();
-    return NextResponse.json({ ok: true, captured });
+    // Refresh the watchlist screen nightly alongside the snapshot. Failures
+    // must never break snapshot capture — the previous rankings just persist.
+    const scan = await runWatchlistScan().catch(() => null);
+    return NextResponse.json({
+      ok: true,
+      captured,
+      watchlistScan: scan ?? { scanned: 0, ranked: 0 },
+    });
   } catch (err) {
     const body: ApiError = {
       error: "Failed to capture snapshot",
