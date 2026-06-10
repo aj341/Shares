@@ -62,9 +62,32 @@ export type IbkrCash = {
   endingCash: number;
 };
 
+export type IbkrTrade = {
+  symbol: string;
+  tradeDate: string;
+  buySell: string;
+  quantity: number;
+  tradePrice: number;
+  commission: number | null;
+  /** FIFO realized P&L booked by this execution (USD for US stocks). */
+  realizedPnl: number | null;
+  currency: string;
+  assetCategory: string;
+};
+
+export type IbkrSymbolPerformance = {
+  symbol: string;
+  realizedTotal: number | null;
+  unrealizedTotal: number | null;
+};
+
 export type IbkrStatement = {
   positions: IbkrPosition[];
   cash: IbkrCash[];
+  /** Present only when the Flex query includes the Trades section. */
+  trades: IbkrTrade[];
+  /** Present only when the query includes Realized & Unrealized Performance. */
+  performance: IbkrSymbolPerformance[];
   whenGenerated: string | null;
 };
 
@@ -169,5 +192,31 @@ export async function fetchFlexStatement(): Promise<IbkrStatement> {
       .map((t) => attr(t, "whenGenerated"))
       .find(Boolean) ?? null;
 
-  return { positions, cash, whenGenerated };
+  // Optional sections — empty arrays when the Flex query doesn't include them.
+  const trades: IbkrTrade[] = elements(xml, "Trade")
+    .map((tag) => ({
+      symbol: (attr(tag, "symbol") ?? "").toUpperCase(),
+      tradeDate: attr(tag, "tradeDate") ?? "",
+      buySell: attr(tag, "buySell") ?? "",
+      quantity: num(tag, "quantity") ?? 0,
+      tradePrice: num(tag, "tradePrice") ?? 0,
+      commission: num(tag, "ibCommission"),
+      realizedPnl: num(tag, "fifoPnlRealized"),
+      currency: attr(tag, "currency") ?? "USD",
+      assetCategory: attr(tag, "assetCategory") ?? "",
+    }))
+    .filter((t) => t.symbol && t.quantity !== 0);
+
+  const performance: IbkrSymbolPerformance[] = elements(
+    xml,
+    "FIFOPerformanceSummaryUnderlying"
+  )
+    .map((tag) => ({
+      symbol: (attr(tag, "symbol") ?? attr(tag, "underlyingSymbol") ?? "").toUpperCase(),
+      realizedTotal: num(tag, "realizedTotal") ?? num(tag, "totalRealized"),
+      unrealizedTotal: num(tag, "unrealizedTotal") ?? num(tag, "totalUnrealized"),
+    }))
+    .filter((p) => p.symbol);
+
+  return { positions, cash, trades, performance, whenGenerated };
 }

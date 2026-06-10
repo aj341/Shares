@@ -104,6 +104,8 @@ export async function GET(req: NextRequest) {
       synced,
       archived,
       cash: statement.cash,
+      trades: statement.trades.length,
+      performance: statement.performance.length,
       whenGenerated: statement.whenGenerated,
     });
   } catch (err) {
