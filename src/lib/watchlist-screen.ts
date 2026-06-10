@@ -31,6 +31,8 @@ export type WatchlistRanking = {
   rsPct: number;
   revision: RevisionDirection;
   composite: number;
+  /** RSI(14) at scan time — entry-quality signal (low = pulled back). */
+  rsi14: number | null;
   scannedAt: string; // ISO timestamp
   /** 1-based rank by composite desc within the scanned set. */
   rank: number;
@@ -63,6 +65,7 @@ type RawStats = {
   momentumPct: number;
   rsPct: number;
   revision: RevisionDirection;
+  rsi14: number | null;
 };
 
 /** Percent return between two closes; null when inputs are unusable. */
@@ -109,6 +112,28 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Wilder-smoothed RSI(14) from daily closes; null when insufficient data. */
+function rsi14(closes: number[], period = 14): number | null {
+  if (closes.length < period + 1) return null;
+  let gain = 0;
+  let loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d >= 0) gain += d;
+    else loss -= d;
+  }
+  let avgGain = gain / period;
+  let avgLoss = loss / period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + Math.max(0, d)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(0, -d)) / period;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return round2(100 - 100 / (1 + rs));
+}
+
 function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
 }
@@ -140,6 +165,7 @@ async function scanTicker(
     momentumPct: round2(momentumPct),
     rsPct: round2(sixMonthPct - qqq6mPct),
     revision,
+    rsi14: rsi14(closes),
   };
 }
 
@@ -156,6 +182,7 @@ CREATE TABLE IF NOT EXISTS watchlist_rankings (
   composite    NUMERIC NOT NULL,
   scanned_at   TIMESTAMPTZ NOT NULL
 );
+ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS rsi14 NUMERIC;
 `;
 
 let rankingsSchemaReady: Promise<void> | null = null;
@@ -178,6 +205,7 @@ type RankingRow = {
   rs_pct: string | number;
   revision: string;
   composite: string | number;
+  rsi14: string | number | null;
   scanned_at: string | Date;
 };
 
@@ -192,9 +220,9 @@ async function persistRankings(rankings: WatchlistRanking[]): Promise<void> {
   for (const r of rankings) {
     await query(
       `INSERT INTO watchlist_rankings
-         (ticker, momentum_pct, rs_pct, revision, composite, scanned_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [r.ticker, r.momentumPct, r.rsPct, r.revision, r.composite, r.scannedAt]
+         (ticker, momentum_pct, rs_pct, revision, composite, rsi14, scanned_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [r.ticker, r.momentumPct, r.rsPct, r.revision, r.composite, r.rsi14, r.scannedAt]
     );
   }
 }
@@ -204,7 +232,7 @@ async function readRankingsFromDb(): Promise<WatchlistRanking[] | null> {
   try {
     await ensureRankingsSchema();
     const rows = await query<RankingRow>(
-      "SELECT ticker, momentum_pct, rs_pct, revision, composite, scanned_at FROM watchlist_rankings ORDER BY composite DESC"
+      "SELECT ticker, momentum_pct, rs_pct, revision, composite, rsi14, scanned_at FROM watchlist_rankings ORDER BY composite DESC"
     );
     if (rows.length === 0) return null;
     const universeSize = rows.length;
@@ -214,6 +242,7 @@ async function readRankingsFromDb(): Promise<WatchlistRanking[] | null> {
       rsPct: Number(row.rs_pct),
       revision: parseRevision(row.revision),
       composite: Number(row.composite),
+      rsi14: row.rsi14 == null ? null : Number(row.rsi14),
       scannedAt: new Date(row.scanned_at).toISOString(),
       rank: i + 1,
       universeSize,
@@ -282,6 +311,7 @@ export async function runWatchlistScan(): Promise<ScanResult> {
     rsPct: s.rsPct,
     revision: s.revision,
     composite: s.composite,
+    rsi14: s.rsi14,
     scannedAt,
     rank: i + 1,
     universeSize: unranked.length,

@@ -80,6 +80,8 @@ export type NewPositionCandidate = {
   companyName: string;
   priceUsd: number;
   rationale: string;
+  /** Score on the SAME 20-metric engine as holdings (null = unscored). */
+  score: number | null;
 };
 
 const MAX_NEW_POSITIONS = 2;
@@ -180,63 +182,88 @@ export function buildRedistribution(
     mvAfter.set(w.holding.ticker, w.sharesAfter * w.holding.currentPrice);
   }
 
+  // --- Phase 3: unified buy queue. Watchlist candidates are scored on the
+  // SAME 20-metric engine as holdings and COMPETE for capital on score —
+  // a screened name that outranks every existing BUY gets funded first.
+  // Candidates must clear the same BUY bar (score >= 70); on score ties the
+  // incumbent holding wins. Callers omit candidates in risk-off regimes.
+  type BuyEntry =
+    | { kind: "existing"; holding: Holding; score: number }
+    | { kind: "new"; cand: NewPositionCandidate; score: number };
+
+  const queue: BuyEntry[] = [
+    ...buyCandidates.map((h) => ({
+      kind: "existing" as const,
+      holding: h,
+      score: h.score,
+    })),
+    ...(opts.newPositionCandidates ?? [])
+      .filter(
+        (c) =>
+          c.score != null && c.score >= 70 && c.priceUsd > 0 && !mvAfter.has(c.ticker)
+      )
+      .map((c) => ({ kind: "new" as const, cand: c, score: c.score as number })),
+  ].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.kind !== b.kind) return a.kind === "existing" ? -1 : 1; // incumbent wins ties
+    return 0;
+  });
+
   let totalInvested = 0;
-  for (const h of buyCandidates) {
-    const currentMv = mvAfter.get(h.ticker) ?? 0;
-    const headroomToCap = Math.max(0, cap - currentMv);
-    const maxByCash = Math.floor(availableToInvest / h.currentPrice);
-    const maxByCap = Math.floor(headroomToCap / h.currentPrice);
-    const buy = Math.max(0, Math.min(maxByCash, maxByCap));
-
-    if (buy <= 0) continue;
-    const cost = buy * h.currentPrice;
-    if (cost < minTradeSize) continue; // ignore dust buys
-
-    availableToInvest -= cost;
-    totalInvested += cost;
-    mvAfter.set(h.ticker, currentMv + cost);
-
-    recommendations.push({
-      action: "BUY",
-      ticker: h.ticker,
-      shares: buy,
-      estimatedPrice: round2(h.currentPrice),
-      estimatedProceedsOrCost: round2(cost),
-      rationale: `Score ${h.score} (${h.signal}); below 30% cap — deploy capital up to cap.`,
-    });
-  }
-
-  // --- Phase 3b: NEW positions from the watchlist screen. Existing holdings
-  // get first call on capital; leftover cash above the buffer can open up to
-  // two starter positions in screened names when they rank better than
-  // topping up the current book. Callers omit candidates in risk-off regimes.
   const newPositions: { ticker: string; companyName: string; mv: number }[] = [];
-  for (const cand of opts.newPositionCandidates ?? []) {
-    if (newPositions.length >= MAX_NEW_POSITIONS) break;
+  for (const entry of queue) {
     if (availableToInvest < minTradeSize) break;
-    if (cand.priceUsd <= 0 || mvAfter.has(cand.ticker)) continue;
-    const budget = Math.min(
-      availableToInvest,
-      totalPortfolioValue * NEW_POSITION_MAX_WEIGHT
-    );
-    const shares = Math.floor(budget / cand.priceUsd);
-    if (shares <= 0) continue;
-    const cost = shares * cand.priceUsd;
-    if (cost < minTradeSize) continue;
 
-    availableToInvest -= cost;
-    totalInvested += cost;
-    mvAfter.set(cand.ticker, cost);
-    newPositions.push({ ticker: cand.ticker, companyName: cand.companyName, mv: cost });
+    if (entry.kind === "existing") {
+      const h = entry.holding;
+      const currentMv = mvAfter.get(h.ticker) ?? 0;
+      const headroomToCap = Math.max(0, cap - currentMv);
+      const maxByCash = Math.floor(availableToInvest / h.currentPrice);
+      const maxByCap = Math.floor(headroomToCap / h.currentPrice);
+      const buy = Math.max(0, Math.min(maxByCash, maxByCap));
 
-    recommendations.push({
-      action: "BUY",
-      ticker: cand.ticker,
-      shares,
-      estimatedPrice: round2(cand.priceUsd),
-      estimatedProceedsOrCost: round2(cost),
-      rationale: `New position (watchlist screen) — ${cand.rationale}`,
-    });
+      if (buy <= 0) continue;
+      const cost = buy * h.currentPrice;
+      if (cost < minTradeSize) continue; // ignore dust buys
+
+      availableToInvest -= cost;
+      totalInvested += cost;
+      mvAfter.set(h.ticker, currentMv + cost);
+
+      recommendations.push({
+        action: "BUY",
+        ticker: h.ticker,
+        shares: buy,
+        estimatedPrice: round2(h.currentPrice),
+        estimatedProceedsOrCost: round2(cost),
+        rationale: `Score ${h.score} (${h.signal}); below 30% cap — deploy capital up to cap.`,
+      });
+    } else {
+      if (newPositions.length >= MAX_NEW_POSITIONS) continue;
+      const cand = entry.cand;
+      const budget = Math.min(
+        availableToInvest,
+        totalPortfolioValue * NEW_POSITION_MAX_WEIGHT
+      );
+      const shares = Math.floor(budget / cand.priceUsd);
+      if (shares <= 0) continue;
+      const cost = shares * cand.priceUsd;
+      if (cost < minTradeSize) continue;
+
+      availableToInvest -= cost;
+      totalInvested += cost;
+      mvAfter.set(cand.ticker, cost);
+      newPositions.push({ ticker: cand.ticker, companyName: cand.companyName, mv: cost });
+
+      recommendations.push({
+        action: "BUY",
+        ticker: cand.ticker,
+        shares,
+        estimatedPrice: round2(cand.priceUsd),
+        estimatedProceedsOrCost: round2(cost),
+        rationale: `New position — scores ${entry.score}/100 on the same 20-metric engine, beating remaining top-up options. ${cand.rationale}`,
+      });
+    }
   }
 
   // --- After snapshot. ---

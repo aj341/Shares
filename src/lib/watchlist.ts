@@ -184,14 +184,47 @@ function candidateFromRanking(r: WatchlistRanking): Candidate {
   };
 }
 
+/** Entry-zone threshold: RSI below this counts as a constructive pullback. */
+const ENTRY_RSI_MAX = 50;
+const MOMENTUM_SLOTS = 5;
+
 /**
- * Candidate list: top-ranked names from the latest scan when available,
- * otherwise the static curated list.
+ * Candidate list: a BLEND from the latest scan — momentum leaders (watch for
+ * a pullback) plus strong-ranked names already IN an entry zone (low RSI at
+ * scan time), so the list always mixes "strongest" with "buyable now".
+ * Falls back to the static curated list when no scan has run.
  */
 async function resolveCandidates(): Promise<Candidate[]> {
+  const total = CANDIDATES.length; // 8 slots
   try {
-    const top = await getTopRanked(CANDIDATES.length);
-    if (top.length > 0) return top.map(candidateFromRanking);
+    const pool = await getTopRanked(20);
+    if (pool.length > 0) {
+      const picked: WatchlistRanking[] = [];
+      const taken = new Set<string>();
+      // 1. Top momentum leaders.
+      for (const r of pool.slice(0, MOMENTUM_SLOTS)) {
+        picked.push(r);
+        taken.add(r.ticker);
+      }
+      // 2. Strong names already pulled back (entry-zone RSI), best rank first.
+      for (const r of pool) {
+        if (picked.length >= total) break;
+        if (taken.has(r.ticker)) continue;
+        if (r.rsi14 != null && r.rsi14 < ENTRY_RSI_MAX) {
+          picked.push(r);
+          taken.add(r.ticker);
+        }
+      }
+      // 3. Fill any remaining slots by rank.
+      for (const r of pool) {
+        if (picked.length >= total) break;
+        if (!taken.has(r.ticker)) {
+          picked.push(r);
+          taken.add(r.ticker);
+        }
+      }
+      return picked.map(candidateFromRanking);
+    }
   } catch (err) {
     if (process.env.NODE_ENV !== "production") {
       console.warn("[watchlist] screen unavailable, using static candidates:", (err as Error).message);

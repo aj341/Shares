@@ -10,6 +10,7 @@ import {
 } from "@/lib/redistribution";
 import { getMarketRegime } from "@/lib/regime";
 import { buildWatchlist } from "@/lib/watchlist";
+import { computeLiveMetrics } from "@/lib/live-metrics";
 import { buildDisagreementRow } from "@/lib/announcements";
 import { extractRsi, scoreHolding } from "@/lib/scoring";
 import { minAnnouncementImpact } from "@/lib/announcements";
@@ -93,23 +94,45 @@ function buildKpis(portfolio: PortfolioResponse): DashboardKpis {
 }
 
 /**
- * Top screened watchlist names as new-position candidates for redistribution.
- * Empty in risk-off regimes — no new positions into a falling market.
+ * Top screened watchlist names as new-position candidates for redistribution,
+ * each scored on the SAME 20-metric engine as the holdings so they can compete
+ * for capital head-to-head. Empty in risk-off regimes — no new positions into
+ * a falling market. Exported so the standalone redistribution route reuses it.
  */
-async function newPositionCandidates(
+export async function buildNewPositionCandidates(
   riskOff: boolean
 ): Promise<NewPositionCandidate[]> {
   if (riskOff) return [];
   const watch = await buildWatchlist().catch(() => null);
-  return (watch?.items ?? [])
+  const shortlist = (watch?.items ?? [])
     .filter((i) => i.price != null && i.price > 0 && i.bucket !== "overbought")
-    .slice(0, 3)
-    .map((i) => ({
-      ticker: i.ticker,
-      companyName: i.companyName,
-      priceUsd: i.price as number,
-      rationale: i.whyItFits,
-    }));
+    .slice(0, 3);
+
+  return Promise.all(
+    shortlist.map(async (i) => {
+      let score: number | null = null;
+      try {
+        const metrics = await computeLiveMetrics(i.ticker, []);
+        if (metrics) {
+          score = scoreHolding(metrics, {
+            rsi: extractRsi(metrics),
+            unrealisedPnlPct: 0,
+            portfolioWeight: 0,
+            minAnnouncementImpact: 0,
+          }).score;
+        }
+      } catch {
+        // Unscored candidates simply don't compete (score stays null).
+      }
+      return {
+        ticker: i.ticker,
+        companyName: i.companyName,
+        priceUsd: i.price as number,
+        rationale: i.whyItFits,
+        score,
+      };
+    })
+  );
 }
 
 /** Aggregate everything for the /api/dashboard endpoint. */
@@ -119,7 +142,7 @@ export async function buildDashboard(): Promise<DashboardResponse> {
     buildPortfolio(),
     getMarketRegime().catch(() => null),
   ]);
-  const candidates = await newPositionCandidates(regime?.regime === "risk_off");
+  const candidates = await buildNewPositionCandidates(regime?.regime === "risk_off");
   const redistributionUsd = buildRedistribution(portfolioUsd, {
     targetCashBufferPct: regime?.targetCashBufferPct,
     regimeLabel: regime?.label,
