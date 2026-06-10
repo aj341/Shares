@@ -295,7 +295,7 @@ function ReadyView({
       </div>
 
       <Tabs defaultValue="overview">
-        <TabsList className="rounded-full">
+        <TabsList className="max-w-full justify-start overflow-x-auto rounded-full [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsTrigger value="overview" className="rounded-full px-4">
             Overview
           </TabsTrigger>
@@ -318,7 +318,7 @@ function ReadyView({
 
         <TabsContent value="overview" className="space-y-4">
           <DailyBriefCard />
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <PerformanceChart data={perf.data} loading={perf.loading} />
             </div>
@@ -328,7 +328,7 @@ function ReadyView({
             </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <SectorAllocation holdings={portfolio.holdings} />
             <SignalsList
               holdings={portfolio.holdings}
@@ -373,7 +373,7 @@ function ReadyView({
             holdings={portfolio.holdings}
           />
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <PortfolioRisk />
             <EventsRadar />
           </div>
@@ -454,7 +454,7 @@ function LoadingState() {
         ))}
       </div>
       <Skeleton className="h-9 w-48 rounded-full" />
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {Array.from({ length: 3 }).map((_, i) => (
           <Skeleton key={i} className="h-48 w-full" />
         ))}
