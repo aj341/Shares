@@ -4,7 +4,7 @@ import { ensureSnapshotSchema } from "@/lib/backtest";
 import { buildWatchlist } from "@/lib/watchlist";
 import { getUpcomingEvents } from "@/lib/events";
 import { getHistoricalEarningsMoves } from "@/lib/earnings-risk";
-import { getImpliedMove } from "@/lib/tradier";
+import { getImpliedMove } from "@/lib/options-data";
 import { isDatabaseConfigured, query } from "@/lib/db";
 import type { Holding, PortfolioAlert } from "@/lib/types";
 
