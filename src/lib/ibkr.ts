@@ -88,6 +88,8 @@ export type IbkrStatement = {
   trades: IbkrTrade[];
   /** Present only when the query includes Realized & Unrealized Performance. */
   performance: IbkrSymbolPerformance[];
+  /** Raw sample of the first performance element (debug aid). */
+  performanceSampleTag?: string | null;
   whenGenerated: string | null;
 };
 
@@ -218,5 +220,9 @@ export async function fetchFlexStatement(): Promise<IbkrStatement> {
     }))
     .filter((p) => p.symbol);
 
-  return { positions, cash, trades, performance, whenGenerated };
+  // Raw first performance tag — surfaces real attribute names via ?debug=1.
+  const performanceSampleTag =
+    elements(xml, "FIFOPerformanceSummaryUnderlying")[0]?.slice(0, 900) ?? null;
+
+  return { positions, cash, trades, performance, performanceSampleTag, whenGenerated };
 }
