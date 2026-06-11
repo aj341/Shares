@@ -58,16 +58,40 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Persist native-currency cash so buildPortfolio shows real broker cash.
-    await saveBrokerCash(
-      statement.cash.map((c) => ({ currency: c.currency, amount: c.endingCash }))
-    ).catch(() => {});
-
-    const before = derive(await readPortfolio());
+    const persisted = await readPortfolio();
+    const before = derive(persisted);
     const current = new Map(before.positions.map((p) => [p.ticker, p]));
     const ibkrSymbols = new Set(stocks.map((s) => s.symbol));
 
+    // STALENESS GUARD: the Flex statement reflects IBKR's last overnight
+    // cycle. If our ledger has a MANUAL entry for a ticker dated AFTER the
+    // statement was generated (same-day trade entered by hand), the statement
+    // is the stale party — skip that ticker rather than reverting the human.
+    // whenGenerated format: "yyyyMMdd;HHmmss" (statement-period end day).
+    const stmtDate = statement.whenGenerated
+      ? `${statement.whenGenerated.slice(0, 4)}-${statement.whenGenerated.slice(4, 6)}-${statement.whenGenerated.slice(6, 8)}`
+      : null;
+    const newerManualTickers = new Set<string>();
+    if (stmtDate) {
+      for (const tx of persisted.transactions) {
+        if (tx.tradeDate > stmtDate && !tx.notes?.includes("IBKR Flex sync")) {
+          newerManualTickers.add(tx.ticker);
+        }
+      }
+    }
+
+    // Cash moves with trades — when ANY manual entry outdates the statement,
+    // the statement cash is stale too; keep the manual estimate until IBKR
+    // publishes a fresh statement.
+    const cashPersisted = newerManualTickers.size === 0;
+    if (cashPersisted) {
+      await saveBrokerCash(
+        statement.cash.map((c) => ({ currency: c.currency, amount: c.endingCash }))
+      ).catch(() => {});
+    }
+
     const synced: string[] = [];
+    const skippedStale: string[] = [];
     const tradeDate = new Date().toISOString().slice(0, 10);
 
     for (const s of stocks) {
@@ -75,6 +99,10 @@ export async function GET(req: NextRequest) {
       const sharesMatch = cur && Math.abs(cur.shares - s.quantity) < 1e-6;
       const priceMatch = cur && Math.abs(cur.entryPrice - s.avgPrice) < PRICE_EPS;
       if (sharesMatch && priceMatch) continue; // already in sync
+      if (newerManualTickers.has(s.symbol)) {
+        skippedStale.push(s.symbol);
+        continue; // ledger knows about trades newer than this statement
+      }
 
       const tx = buildTransaction({
         ticker: s.symbol,
@@ -93,7 +121,7 @@ export async function GET(req: NextRequest) {
     // Archive holdings IBKR no longer reports (sold out elsewhere).
     const archived: string[] = [];
     for (const p of before.positions) {
-      if (!ibkrSymbols.has(p.ticker)) {
+      if (!ibkrSymbols.has(p.ticker) && !newerManualTickers.has(p.ticker)) {
         await setArchived(p.ticker, true);
         archived.push(p.ticker);
       }
@@ -102,6 +130,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       synced,
+      skippedStale,
+      cashPersisted,
       archived,
       cash: statement.cash,
       trades: statement.trades.length,
