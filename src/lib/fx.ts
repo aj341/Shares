@@ -29,17 +29,23 @@ const TTL_MS = 15 * 60 * 1000;
 let cache: { at: number; rates: FxRates } | null = null;
 
 /**
- * Live AUD/USD from Mboum's FX candles (AUDUSD=X, hourly — Yahoo CCY feed).
- * Returns 1 USD in AUD, or null on any failure.
+ * Live AUD/USD via Mboum's FX history META (regularMarketPrice — the actual
+ * Yahoo CCY live quote; the hourly CANDLES are rounded junk, e.g. flat 0.70).
+ * Sanity-bounded; returns 1 USD in AUD, or null on any failure.
  */
 async function liveUsdToAud(): Promise<number | null> {
   try {
-    const { getStockHistory, isMboumConfigured } = await import("@/lib/mboum");
+    const { mboumFetch, isMboumConfigured } = await import("@/lib/mboum");
     if (!isMboumConfigured()) return null;
-    const candles = await getStockHistory("AUDUSD=X", { interval: "1h", days: 5 });
-    const last = candles[candles.length - 1];
-    if (!last || last.close <= 0) return null;
-    return 1 / last.close; // AUDUSD=X quotes 1 AUD in USD
+    const data = await mboumFetch<{ meta?: { regularMarketPrice?: number } }>(
+      "/markets/stock/history",
+      { symbol: "AUDUSD=X", interval: "1h", diffandsplits: "false" },
+      600
+    );
+    const audUsd = data?.meta?.regularMarketPrice;
+    // Sanity bounds: AUD has traded 0.45–1.11 USD in its entire float history.
+    if (!audUsd || audUsd < 0.4 || audUsd > 1.2) return null;
+    return 1 / audUsd;
   } catch {
     return null;
   }
