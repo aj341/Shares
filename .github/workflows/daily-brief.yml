@@ -1,25 +1,22 @@
 name: Daily Telegram Brief
 
-# Sends the evening brief at 8:30pm Sydney, year-round.
+# Sends the evening brief at 9:00pm AEST.
 #
 # It first re-runs the IBKR realign (idempotent) so the brief is ALWAYS built on
 # the live broker portfolio, then forces a fresh rebuild (?fresh=1) to bypass the
-# brief's 4h cache. This is self-contained: even if the 8pm realign job was
-# delayed or failed, the brief still reflects a just-run sync.
+# brief's 4h cache. Self-contained: even if the 8:15pm realign job lagged or
+# failed, the brief still reflects a just-run sync.
 #
-# GitHub Actions cron is fixed-UTC with no timezone support, so we schedule at
-# both candidate UTC times and let a Sydney-local hour check pick the right one
-# across daylight saving:
-#   - AEST (UTC+10): 10:30 UTC == 20:30 Sydney
-#   - AEDT (UTC+11): 09:30 UTC == 20:30 Sydney
+# Anchored to AEST (UTC+10) year-round, per the market-relative routine — it
+# does NOT follow Sydney daylight saving.
+#   9:00pm AEST == 11:00 UTC
 #
 # Requires repo secret CRON_SECRET matching the Railway CRON_SECRET variable.
 
 on:
   schedule:
-    - cron: "30 9 * * *"   # 20:30 Sydney during AEDT
-    - cron: "30 10 * * *"  # 20:30 Sydney during AEST
-  workflow_dispatch: {}     # manual run (always sends)
+    - cron: "0 11 * * *"   # 9:00pm AEST (UTC+10)
+  workflow_dispatch: {}     # manual run
 
 concurrency:
   group: daily-brief
@@ -29,7 +26,7 @@ jobs:
   send-brief:
     runs-on: ubuntu-latest
     steps:
-      - name: Send brief if it is 8:30pm in Sydney
+      - name: Realign then send the evening brief
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           BASE_URL: https://web-production-ddb43.up.railway.app
@@ -38,12 +35,6 @@ jobs:
           if [ -z "${CRON_SECRET}" ]; then
             echo "::error::CRON_SECRET repo secret is not set."
             exit 1
-          fi
-          HOUR="$(TZ=Australia/Sydney date +%H)"
-          echo "Sydney local hour: ${HOUR} (event: ${GITHUB_EVENT_NAME})"
-          if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ] && [ "${HOUR}" != "20" ]; then
-            echo "Not the 8:30pm Sydney window — skipping this trigger."
-            exit 0
           fi
 
           echo "1/2 Realigning ledger to IBKR (idempotent)…"
