@@ -4,14 +4,13 @@ import { PORTFOLIO_RULES } from "@/lib/constants";
 
 /**
  * Market-regime overlay: QQQ vs its 200-day MA (trend) + 20-day realized
- * volatility percentile vs the trailing year (stress). Drives a DYNAMIC cash
- * buffer for the redistribution engine and the brief's stance — a high-beta
- * six-stock book's compounded return is dominated by drawdown depth, and the
- * holdings' own signals are circular (they all sour together, too late).
+ * volatility percentile vs the trailing year (stress). Classifies the tape and
+ * feeds the brief's stance + the risk-off gate on NEW positions.
  *
- * risk_on  : uptrend, calm vol           → base 5% buffer
- * caution  : trend OR vol deteriorating  → 12% buffer
- * risk_off : downtrend AND stressed vol  → 20% buffer
+ * Cash buffer is DISABLED (fully-invested policy): all regimes target a 0%
+ * buffer, so the redistribution engine deploys all available cash regardless of
+ * regime. The regime is still used to (a) suppress new-position entries in
+ * risk-off and (b) colour the brief's stance.
  */
 
 export type MarketRegime = {
@@ -23,10 +22,12 @@ export type MarketRegime = {
   asOf: string;
 };
 
+// Fully-invested policy: no cash buffer in any regime. (Regime still gates
+// new positions in risk-off and sets the brief's stance.)
 const BUFFERS: Record<MarketRegime["regime"], number> = {
-  risk_on: PORTFOLIO_RULES.targetCashBufferPct, // 0.05
-  caution: 0.12,
-  risk_off: 0.2,
+  risk_on: PORTFOLIO_RULES.targetCashBufferPct, // 0
+  caution: 0,
+  risk_off: 0,
 };
 
 const VOL_STRESS_PCTILE = 70;

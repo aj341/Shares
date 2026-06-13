@@ -50,8 +50,9 @@ export const CASH_BALANCES: { currency: CashCurrency; amountAud: number }[] = [
 export const PORTFOLIO_RULES = {
   /** Maximum single-position weight. */
   maxPositionWeight: 0.35,
-  /** Cash buffer to retain, as a fraction of total portfolio value. */
-  targetCashBufferPct: 0.05,
+  /** Cash buffer to retain, as a fraction of total portfolio value.
+   *  0 = fully invested: deploy all available cash, hold no dry powder. */
+  targetCashBufferPct: 0,
   /** Whole-share rounding only — no fractional trades. */
   wholeSharesOnly: true,
   /** Ignore trims whose notional value is below this (AUD). */
