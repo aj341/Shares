@@ -1,0 +1,55 @@
+name: Nightly Portfolio Realign
+
+# 8:00pm Sydney: realign the ledger to the actual IBKR portfolio (so a sold-out
+# name like RBLX drops, share counts/avg cost match the broker), then capture
+# the nightly score snapshot + watchlist scan. The 8:30pm brief then reanalyses
+# this realigned book. Half an hour is ample — the realign + snapshot take well
+# under a minute.
+#
+# Same DST-safe scheduling as the brief: two UTC triggers + a Sydney-hour gate.
+#   - AEST (UTC+10): 10:00 UTC == 20:00 Sydney
+#   - AEDT (UTC+11): 09:00 UTC == 20:00 Sydney
+#
+# Requires repo secret CRON_SECRET matching the Railway CRON_SECRET variable.
+
+on:
+  schedule:
+    - cron: "0 9 * * *"    # 20:00 Sydney during AEDT
+    - cron: "0 10 * * *"   # 20:00 Sydney during AEST
+  workflow_dispatch: {}
+
+concurrency:
+  group: nightly-realign
+  cancel-in-progress: false
+
+jobs:
+  realign:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Realign to IBKR + snapshot if it is 8pm in Sydney
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE_URL: https://web-production-ddb43.up.railway.app
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET repo secret is not set."
+            exit 1
+          fi
+          HOUR="$(TZ=Australia/Sydney date +%H)"
+          echo "Sydney local hour: ${HOUR} (event: ${GITHUB_EVENT_NAME})"
+          if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ] && [ "${HOUR}" != "20" ]; then
+            echo "Not the 8pm Sydney window — skipping this trigger."
+            exit 0
+          fi
+
+          echo "1/2 Realigning ledger to IBKR…"
+          curl --fail --silent --show-error --max-time 90 \
+            "${BASE_URL}/api/portfolio/sync-ibkr?secret=${CRON_SECRET}"
+          echo
+
+          echo "2/2 Capturing nightly snapshot + watchlist scan…"
+          curl --fail --silent --show-error --max-time 300 \
+            "${BASE_URL}/api/cron/snapshot?secret=${CRON_SECRET}"
+          echo
+          echo "Realign + snapshot complete."

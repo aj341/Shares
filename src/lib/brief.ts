@@ -32,9 +32,11 @@ type Ctx = {
   nextEarningsInDays: number | null;
 };
 
-export async function buildBrief(): Promise<DailyBrief> {
+export async function buildBrief(opts?: { force?: boolean }): Promise<DailyBrief> {
   const now = Date.now();
-  if (cache && now - cache.at < TTL_MS) return cache.brief;
+  // `force` bypasses the cache — used by the nightly cron so the evening brief
+  // always reflects the just-completed IBKR realign, not a stale afternoon view.
+  if (!opts?.force && cache && now - cache.at < TTL_MS) return cache.brief;
 
   const portfolio = await buildPortfolio();
   const tickers = portfolio.holdings.map((h) => h.ticker);

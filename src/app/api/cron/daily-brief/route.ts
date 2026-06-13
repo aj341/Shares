@@ -34,7 +34,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [brief, dash] = await Promise.all([buildBrief(), buildDashboard()]);
+    // `?fresh=1` (the nightly cron) forces a brief rebuild so it reflects the
+    // 8pm IBKR realign rather than a cached afternoon view. buildDashboard is
+    // always computed fresh.
+    const fresh = req.nextUrl.searchParams.get("fresh") === "1";
+    const [brief, dash] = await Promise.all([
+      buildBrief({ force: fresh }),
+      buildDashboard(),
+    ]);
     const k = dash.kpis;
 
     const lines: string[] = [];

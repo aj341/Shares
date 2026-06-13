@@ -1,24 +1,26 @@
 name: Daily Telegram Brief
 
-# Fires the evening brief endpoint at 8:30pm Sydney time, year-round.
+# Sends the evening brief at 8:30pm Sydney, year-round.
 #
-# GitHub Actions cron is fixed-UTC and has no timezone support, so we schedule
-# at BOTH candidate UTC times and let a Sydney-local hour check decide which one
-# actually sends. This keeps it correct across daylight saving with no endpoint
-# changes:
-#   - AEST (UTC+10, ~Apr–Oct): 10:30 UTC == 20:30 Sydney  -> sends
-#   - AEDT (UTC+11, ~Oct–Apr): 09:30 UTC == 20:30 Sydney  -> sends
-# The off-season trigger lands at 19:30 / 21:30 Sydney and is skipped.
+# It first re-runs the IBKR realign (idempotent) so the brief is ALWAYS built on
+# the live broker portfolio, then forces a fresh rebuild (?fresh=1) to bypass the
+# brief's 4h cache. This is self-contained: even if the 8pm realign job was
+# delayed or failed, the brief still reflects a just-run sync.
 #
-# Requires a repo secret CRON_SECRET matching the Railway CRON_SECRET variable.
+# GitHub Actions cron is fixed-UTC with no timezone support, so we schedule at
+# both candidate UTC times and let a Sydney-local hour check pick the right one
+# across daylight saving:
+#   - AEST (UTC+10): 10:30 UTC == 20:30 Sydney
+#   - AEDT (UTC+11): 09:30 UTC == 20:30 Sydney
+#
+# Requires repo secret CRON_SECRET matching the Railway CRON_SECRET variable.
 
 on:
   schedule:
     - cron: "30 9 * * *"   # 20:30 Sydney during AEDT
     - cron: "30 10 * * *"  # 20:30 Sydney during AEST
-  workflow_dispatch: {}     # allow manual runs (always sends)
+  workflow_dispatch: {}     # manual run (always sends)
 
-# Avoid overlapping runs if a previous one is still going.
 concurrency:
   group: daily-brief
   cancel-in-progress: false
@@ -30,7 +32,7 @@ jobs:
       - name: Send brief if it is 8:30pm in Sydney
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          BRIEF_URL: https://web-production-ddb43.up.railway.app/api/cron/daily-brief
+          BASE_URL: https://web-production-ddb43.up.railway.app
         run: |
           set -euo pipefail
           if [ -z "${CRON_SECRET}" ]; then
@@ -43,8 +45,14 @@ jobs:
             echo "Not the 8:30pm Sydney window — skipping this trigger."
             exit 0
           fi
-          echo "Triggering evening brief…"
+
+          echo "1/2 Realigning ledger to IBKR (idempotent)…"
+          curl --fail --silent --show-error --max-time 90 \
+            "${BASE_URL}/api/portfolio/sync-ibkr?secret=${CRON_SECRET}" || \
+            echo "::warning::IBKR realign failed; sending brief on last-known ledger."
+
+          echo "2/2 Building + sending fresh evening brief…"
           curl --fail --silent --show-error --max-time 300 \
-            "${BRIEF_URL}?secret=${CRON_SECRET}"
+            "${BASE_URL}/api/cron/daily-brief?fresh=1&secret=${CRON_SECRET}"
           echo
-          echo "Brief request completed."
+          echo "Brief sent."
