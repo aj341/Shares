@@ -1,19 +1,18 @@
 name: Nightly Portfolio Realign
 
-# 8:15pm AEST: realign the ledger to the actual IBKR portfolio (drops sold-out
-# names, matches share counts/avg cost), then capture the score snapshot +
-# watchlist scan. 15-min cushion past IBKR's 8pm data refresh. The 9pm brief
-# then reanalyses this realigned book.
+# ~8:15pm AEST: realign the ledger to the actual IBKR portfolio, then capture
+# the score snapshot + watchlist scan. GitHub's scheduler is best-effort, so we
+# fire at TWO off-peak minutes for redundancy; both steps are idempotent, so a
+# second run is harmless. (The 9pm brief also re-runs the realign as a final
+# backstop.)
 #
-# Anchored to AEST (UTC+10) year-round (does NOT follow Sydney DST):
-#   8:15pm AEST == 10:15 UTC
-#
-# Requires repo secret CRON_SECRET (Settings -> Secrets and variables ->
-# Actions) matching the Railway CRON_SECRET variable.
+# AEST (UTC+10), no DST:  8:13pm = 10:13 UTC,  8:33pm = 10:33 UTC.
+# Requires repo secret CRON_SECRET.
 
 on:
   schedule:
-    - cron: "15 10 * * *"  # 8:15pm AEST (UTC+10)
+    - cron: "13 10 * * *"  # 8:13pm AEST (primary)
+    - cron: "33 10 * * *"  # 8:33pm AEST (redundant backstop)
   workflow_dispatch: {}
 
 concurrency:
@@ -31,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${CRON_SECRET}" ]; then
-            echo "::error::CRON_SECRET repo secret is not set (Settings -> Secrets and variables -> Actions)."
+            echo "::error::CRON_SECRET repo secret is not set."
             exit 1
           fi
 

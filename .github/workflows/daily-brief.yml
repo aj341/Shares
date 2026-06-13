@@ -1,18 +1,21 @@
 name: Daily Telegram Brief
 
-# 9:00pm AEST: re-run the IBKR realign (idempotent — keeps the brief correct
-# even if the 8:15pm job lagged/failed), then send the evening brief forced
-# fresh (?fresh=1) so it reanalyses the realigned book, not the 4h cache.
+# 9pm AEST evening brief. GitHub's scheduler is best-effort (it drops/delays
+# runs, worst at the top of the hour), so we fire at TWO off-peak minutes for
+# redundancy. The endpoint has a once-per-AEST-day send guard, so the second
+# run de-dupes — you get exactly one brief even if both fire.
 #
-# Anchored to AEST (UTC+10) year-round (does NOT follow Sydney DST):
-#   9:00pm AEST == 11:00 UTC
+# Each run first re-runs the IBKR realign (idempotent) so the brief reflects the
+# live broker book, then sends with ?fresh=1 (bypass the 4h content cache).
+# Manual runs add &force=1 to bypass the daily guard for test sends.
 #
-# Requires repo secret CRON_SECRET (Settings -> Secrets and variables ->
-# Actions) matching the Railway CRON_SECRET variable.
+# AEST (UTC+10), no DST:  9:07pm = 11:07 UTC,  9:37pm = 11:37 UTC.
+# Requires repo secret CRON_SECRET.
 
 on:
   schedule:
-    - cron: "0 11 * * *"   # 9:00pm AEST (UTC+10)
+    - cron: "7 11 * * *"    # 9:07pm AEST (primary)
+    - cron: "37 11 * * *"   # 9:37pm AEST (redundant backstop)
   workflow_dispatch: {}
 
 concurrency:
@@ -30,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${CRON_SECRET}" ]; then
-            echo "::error::CRON_SECRET repo secret is not set (Settings -> Secrets and variables -> Actions)."
+            echo "::error::CRON_SECRET repo secret is not set."
             exit 1
           fi
 
@@ -39,8 +42,13 @@ jobs:
             "${BASE_URL}/api/portfolio/sync-ibkr?secret=${CRON_SECRET}" || \
             echo "::warning::IBKR realign failed; sending brief on last-known ledger."
 
+          # Manual runs force a send (bypass the once-per-day guard); scheduled
+          # runs respect it so the redundant cron can't double-send.
+          FORCE=""
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then FORCE="&force=1"; fi
+
           echo "2/2 Building + sending fresh evening brief…"
           curl --fail --silent --show-error --max-time 300 \
-            "${BASE_URL}/api/cron/daily-brief?fresh=1&secret=${CRON_SECRET}"
+            "${BASE_URL}/api/cron/daily-brief?fresh=1${FORCE}&secret=${CRON_SECRET}"
           echo
-          echo "Brief sent."
+          echo "Brief request completed."
