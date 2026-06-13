@@ -1,0 +1,46 @@
+name: Daily Telegram Brief
+
+# 9:00pm AEST: re-run the IBKR realign (idempotent — keeps the brief correct
+# even if the 8:15pm job lagged/failed), then send the evening brief forced
+# fresh (?fresh=1) so it reanalyses the realigned book, not the 4h cache.
+#
+# Anchored to AEST (UTC+10) year-round (does NOT follow Sydney DST):
+#   9:00pm AEST == 11:00 UTC
+#
+# Requires repo secret CRON_SECRET (Settings -> Secrets and variables ->
+# Actions) matching the Railway CRON_SECRET variable.
+
+on:
+  schedule:
+    - cron: "0 11 * * *"   # 9:00pm AEST (UTC+10)
+  workflow_dispatch: {}
+
+concurrency:
+  group: daily-brief
+  cancel-in-progress: false
+
+jobs:
+  send-brief:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Realign then send the evening brief
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE_URL: https://web-production-ddb43.up.railway.app
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET repo secret is not set (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+
+          echo "1/2 Realigning ledger to IBKR (idempotent)…"
+          curl --fail --silent --show-error --max-time 90 \
+            "${BASE_URL}/api/portfolio/sync-ibkr?secret=${CRON_SECRET}" || \
+            echo "::warning::IBKR realign failed; sending brief on last-known ledger."
+
+          echo "2/2 Building + sending fresh evening brief…"
+          curl --fail --silent --show-error --max-time 300 \
+            "${BASE_URL}/api/cron/daily-brief?fresh=1&secret=${CRON_SECRET}"
+          echo
+          echo "Brief sent."
