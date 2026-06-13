@@ -21,6 +21,11 @@ const BUCKET_META: Record<
     tone: "[color:hsl(var(--positive))]",
     chip: "bg-positive-muted [color:hsl(var(--positive))]",
   },
+  momentum: {
+    title: "Buy on Strength (momentum)",
+    tone: "[color:hsl(var(--brand))]",
+    chip: "bg-brand-muted [color:hsl(var(--brand))]",
+  },
   neutral: {
     title: "Neutral / Wait",
     tone: "[color:hsl(var(--warning))]",
@@ -65,7 +70,7 @@ export function WatchlistTab({
     );
   }
 
-  const buckets: WatchlistBucket[] = ["best_entry", "neutral", "overbought"];
+  const buckets: WatchlistBucket[] = ["best_entry", "momentum", "neutral", "overbought"];
   const byBucket = (b: WatchlistBucket) =>
     data.items.filter((i) => i.bucket === b).map((i) => i.ticker);
 
@@ -77,9 +82,10 @@ export function WatchlistTab({
           <div>
             <h2 className="text-base font-semibold">Watchlist — Suggested Additions</h2>
             <p className="mt-1 max-w-md text-xs text-muted-foreground">
-              Screened Nasdaq names. Buckets show entry TIMING (RSI pullback);
-              the Score shows QUALITY on the same 20-metric engine as your
-              holdings — 70+ competes for capital. Not financial advice.
+              Screened Nasdaq names. Buckets show entry TIMING — pullback,
+              buy-on-strength (uptrend + BUY-rated), neutral or overbought; the
+              Score shows QUALITY on the same 20-metric engine as your holdings
+              — 70+ competes for capital. Not financial advice.
             </p>
           </div>
           <div className="flex gap-6 text-right">
@@ -95,7 +101,7 @@ export function WatchlistTab({
       </Card>
 
       {/* Bucket strip */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         {buckets.map((b) => (
           <div
             key={b}

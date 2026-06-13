@@ -125,10 +125,22 @@ const CANDIDATES: Candidate[] = [
   },
 ];
 
-function bucketFor(rsi: number | null): { bucket: WatchlistBucket; label: string } {
+/**
+ * Entry-timing bucket. RSI extremes still anchor the ends (overbought → wait,
+ * oversold → pullback entry), but the mid-range is no longer blindly "Neutral":
+ * a name in a confirmed uptrend (price above its 50/20-day MA) that is ALSO
+ * BUY-rated by the engine is a momentum entry ("buy on strength"), not a wait.
+ * This is what stops a +200%-momentum, BUY-rated leader reading "Neutral".
+ */
+function bucketFor(
+  rsi: number | null,
+  opts: { trendUp: boolean; buyRated: boolean } = { trendUp: false, buyRated: false }
+): { bucket: WatchlistBucket; label: string } {
   if (rsi == null) return { bucket: "neutral", label: "Neutral" };
+  if (rsi > 72) return { bucket: "overbought", label: "Overbought" };
   if (rsi < 45) return { bucket: "best_entry", label: "Near Oversold" };
-  if (rsi > 70) return { bucket: "overbought", label: "Overbought" };
+  if (opts.trendUp && opts.buyRated)
+    return { bucket: "momentum", label: "Buy on Strength" };
   return { bucket: "neutral", label: "Neutral" };
 }
 
@@ -147,7 +159,9 @@ function technicalSignal(bucket: WatchlistBucket, rsi: number | null): string {
     return `RSI ${rsi} — near oversold; constructive entry zone after a pullback.`;
   if (bucket === "overbought")
     return `RSI ${rsi} — overbought; consider waiting for a reset before adding.`;
-  return `RSI ${rsi} — mid-range; no momentum extreme, healthy reset territory.`;
+  if (bucket === "momentum")
+    return `RSI ${rsi} — mid-range in a confirmed uptrend and BUY-rated; momentum entry (buy on strength), not a wait.`;
+  return `RSI ${rsi} — mid-range with no confirmed trend; neutral, await a clearer signal.`;
 }
 
 /** Signed percent string, e.g. "+34.2%" / "-5.1%". */
@@ -300,7 +314,11 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
         scoreOnEngine(c.ticker),
       ]);
       const price = tech.sparkline.at(-1) ?? null;
-      const { bucket, label } = bucketFor(tech.rsi);
+      // Trend = price above its 50- (or 20-) day MA; quality = engine BUY-grade.
+      const trendUp = tech.priceVsMa50 === "above" || tech.priceVsMa20 === "above";
+      const buyRated =
+        engine?.signal === "BUY" || engine?.signal === "STRONG_BUY";
+      const { bucket, label } = bucketFor(tech.rsi, { trendUp, buyRated });
       return {
         engineScore: engine?.score ?? null,
         engineSignal: engine?.signal ?? null,
@@ -329,7 +347,7 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
   );
 
   // Rank: best-entry first, then by upside desc.
-  const order: Record<WatchlistBucket, number> = { best_entry: 0, neutral: 1, overbought: 2 };
+  const order: Record<WatchlistBucket, number> = { best_entry: 0, momentum: 1, neutral: 2, overbought: 3 };
   items.sort((a, b) => {
     if (order[a.bucket] !== order[b.bucket]) return order[a.bucket] - order[b.bucket];
     return (b.upsidePct ?? -999) - (a.upsidePct ?? -999);

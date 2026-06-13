@@ -456,7 +456,7 @@ export type StocksResponse = {
 // Watchlist (suggested additions)
 // ---------------------------------------------------------------------------
 
-export type WatchlistBucket = "best_entry" | "neutral" | "overbought";
+export type WatchlistBucket = "best_entry" | "momentum" | "neutral" | "overbought";
 
 export type AnalystAction = {
   firm: string;
