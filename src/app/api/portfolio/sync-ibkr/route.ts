@@ -139,9 +139,17 @@ export async function GET(req: NextRequest) {
       whenGenerated: statement.whenGenerated,
     });
   } catch (err) {
+    const e = err as Error;
+    // Surface enough to diagnose: empty .message (e.g. a thrown non-Error or a
+    // bare Error) otherwise hides the cause entirely.
+    const detail =
+      e?.message ||
+      e?.stack?.split("\n").slice(0, 3).join(" | ") ||
+      (typeof err === "string" ? err : JSON.stringify(err)) ||
+      `${e?.name ?? typeof err} (no message)`;
     const body: ApiError = {
       error: "IBKR sync failed",
-      detail: (err as Error).message,
+      detail,
     };
     return NextResponse.json(body, { status: 500 });
   }
