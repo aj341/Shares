@@ -1,0 +1,50 @@
+name: Daily Telegram Brief
+
+# Fires the evening brief endpoint at 8:30pm Sydney time, year-round.
+#
+# GitHub Actions cron is fixed-UTC and has no timezone support, so we schedule
+# at BOTH candidate UTC times and let a Sydney-local hour check decide which one
+# actually sends. This keeps it correct across daylight saving with no endpoint
+# changes:
+#   - AEST (UTC+10, ~Apr–Oct): 10:30 UTC == 20:30 Sydney  -> sends
+#   - AEDT (UTC+11, ~Oct–Apr): 09:30 UTC == 20:30 Sydney  -> sends
+# The off-season trigger lands at 19:30 / 21:30 Sydney and is skipped.
+#
+# Requires a repo secret CRON_SECRET matching the Railway CRON_SECRET variable.
+
+on:
+  schedule:
+    - cron: "30 9 * * *"   # 20:30 Sydney during AEDT
+    - cron: "30 10 * * *"  # 20:30 Sydney during AEST
+  workflow_dispatch: {}     # allow manual runs (always sends)
+
+# Avoid overlapping runs if a previous one is still going.
+concurrency:
+  group: daily-brief
+  cancel-in-progress: false
+
+jobs:
+  send-brief:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send brief if it is 8:30pm in Sydney
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BRIEF_URL: https://web-production-ddb43.up.railway.app/api/cron/daily-brief
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET repo secret is not set."
+            exit 1
+          fi
+          HOUR="$(TZ=Australia/Sydney date +%H)"
+          echo "Sydney local hour: ${HOUR} (event: ${GITHUB_EVENT_NAME})"
+          if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ] && [ "${HOUR}" != "20" ]; then
+            echo "Not the 8:30pm Sydney window — skipping this trigger."
+            exit 0
+          fi
+          echo "Triggering evening brief…"
+          curl --fail --silent --show-error --max-time 300 \
+            "${BRIEF_URL}?secret=${CRON_SECRET}"
+          echo
+          echo "Brief request completed."
