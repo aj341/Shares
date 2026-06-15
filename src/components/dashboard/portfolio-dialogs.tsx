@@ -21,7 +21,7 @@ import {
   postCashAdjustment,
   postTransaction,
 } from "@/lib/client";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatUsd } from "@/lib/utils";
 import { signedTextClass } from "@/lib/ui";
 import type { Holding, PortfolioTransaction } from "@/lib/types";
 
@@ -240,7 +240,7 @@ function TradeForm({
               autoFocus={mode !== "addStock"}
             />
           </Field>
-          <Field label="Price / share">
+          <Field label="Price / share (USD)">
             <Input
               type="number"
               min="0"
@@ -276,7 +276,7 @@ function TradeForm({
             {isSell ? "Est. proceeds" : "Est. cost"}
           </span>
           <span className="font-mono-nums font-semibold">
-            {formatCurrency(Math.abs(estimate))}
+            {formatUsd(Math.abs(estimate))}
           </span>
         </div>
 
@@ -468,7 +468,7 @@ function CashForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
           ))}
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Amount">
+          <Field label="Amount (USD)">
             <Input
               type="number"
               min="0"
@@ -570,7 +570,7 @@ function HistoryView({ ticker }: { ticker?: string }) {
                     {t.shares || "—"}
                   </td>
                   <td className="py-2 pr-2 text-right font-mono-nums">
-                    {t.pricePerShare ? formatCurrency(t.pricePerShare) : "—"}
+                    {t.pricePerShare ? formatUsd(t.pricePerShare) : "—"}
                   </td>
                   <td
                     className={cn(
@@ -579,7 +579,7 @@ function HistoryView({ ticker }: { ticker?: string }) {
                     )}
                   >
                     {t.netCashImpact
-                      ? formatCurrency(t.netCashImpact, { sign: true })
+                      ? formatUsd(t.netCashImpact, { sign: true })
                       : "—"}
                   </td>
                 </tr>

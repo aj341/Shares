@@ -34,6 +34,7 @@ function ensureSchema(): Promise<void> {
 }
 
 let memory: BrokerCashLine[] | null = null;
+let memoryAt: string | null = null;
 
 /** Replace the stored balances with the latest sync's lines. */
 export async function saveBrokerCash(lines: BrokerCashLine[]): Promise<void> {
@@ -42,6 +43,7 @@ export async function saveBrokerCash(lines: BrokerCashLine[]): Promise<void> {
     .filter((l) => l.currency && Number.isFinite(l.amount));
   if (!isDatabaseConfigured()) {
     memory = clean;
+    memoryAt = new Date().toISOString();
     return;
   }
   await ensureSchema();
@@ -56,16 +58,32 @@ export async function saveBrokerCash(lines: BrokerCashLine[]): Promise<void> {
   }
 }
 
-/** Latest synced balances, or null when no sync has run yet. */
-export async function readBrokerCash(): Promise<BrokerCashLine[] | null> {
-  if (!isDatabaseConfigured()) return memory;
+/**
+ * Latest synced balances + the sync timestamp, or null when no sync has run.
+ * `syncedAt` lets callers layer ledger cash movements entered AFTER the last
+ * broker sync on top of the broker baseline (so a manual buy/cash-edit shows
+ * immediately and reconciles automatically on the next sync).
+ */
+export async function readBrokerCash(): Promise<
+  { lines: BrokerCashLine[]; syncedAt: string | null } | null
+> {
+  if (!isDatabaseConfigured()) {
+    return memory ? { lines: memory, syncedAt: memoryAt } : null;
+  }
   try {
     await ensureSchema();
-    const rows = await query<{ currency: string; amount: string }>(
-      `SELECT currency, amount FROM broker_cash ORDER BY currency`
+    const rows = await query<{ currency: string; amount: string; updated_at: string | Date }>(
+      `SELECT currency, amount, updated_at FROM broker_cash ORDER BY currency`
     );
     if (rows.length === 0) return null;
-    return rows.map((r) => ({ currency: r.currency, amount: Number(r.amount) }));
+    const syncedAt = rows
+      .map((r) => (typeof r.updated_at === "string" ? r.updated_at : r.updated_at.toISOString()))
+      .sort()
+      .at(-1) ?? null;
+    return {
+      lines: rows.map((r) => ({ currency: r.currency, amount: Number(r.amount) })),
+      syncedAt,
+    };
   } catch {
     return null;
   }

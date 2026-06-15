@@ -118,7 +118,7 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
   //    Engine works in USD (US equities are USD-priced); we convert to AUD for
   //    display in toAudPortfolio. Cash is the multi-currency broker balance,
   //    summed to USD here so the USD engine (redistribution) stays consistent.
-  const [{ positions }, fx, brokerCash] = await Promise.all([
+  const [{ positions, state }, fx, brokerCash] = await Promise.all([
     getDerivedPortfolio(),
     getFxRates(),
     readBrokerCash().catch(() => null),
@@ -127,7 +127,7 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
   // Cash: prefer the IBKR-synced balances (NATIVE currency → AUD via live FX);
   // fall back to the static CASH_BALANCES (already AUD market values).
   const cashBalances: CashBalance[] = brokerCash
-    ? brokerCash.map((b) => ({
+    ? brokerCash.lines.map((b) => ({
         currency: b.currency,
         amountAud: round2(toAud(b.amount, b.currency, fx)),
       }))
@@ -135,6 +135,22 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
         currency: b.currency,
         amountAud: round2(b.amountAud),
       }));
+
+  // The broker balance is a periodic snapshot. Layer ledger cash movements
+  // (buys, sells, cash adjustments) entered AFTER the last broker sync on top,
+  // so a manual entry reflects immediately and the next sync reconciles it
+  // away. Ledger amounts are USD (US equities are USD-priced; engine is USD).
+  const since = brokerCash?.syncedAt ?? null;
+  const ledgerCashDeltaUsd = state.transactions
+    .filter((t) => since == null || t.createdAt > since)
+    .reduce((sum, t) => sum + (t.netCashImpact ?? 0), 0);
+  if (ledgerCashDeltaUsd !== 0) {
+    const deltaAud = toAud(ledgerCashDeltaUsd, "USD", fx);
+    const usd = cashBalances.find((b) => b.currency === "USD");
+    if (usd) usd.amountAud = round2(usd.amountAud + deltaAud);
+    else cashBalances.push({ currency: "USD", amountAud: round2(deltaAud) });
+  }
+
   const cashAud = cashBalances.reduce((s, b) => s + b.amountAud, 0);
   const currentCash = cashAud * fx.audToUsd; // USD-equivalent for the engine
 
