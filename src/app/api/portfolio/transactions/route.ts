@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendTransaction, readPortfolio } from "@/lib/portfolio-store";
+import { appendTransaction, readPortfolio, setArchived } from "@/lib/portfolio-store";
 import { derive, sharesOwned } from "@/lib/portfolio-derivation";
 import { buildTransaction, ValidationError, type TradeInput } from "@/lib/transactions";
 import type { ApiError } from "@/lib/types";
@@ -38,7 +38,16 @@ export async function POST(req: NextRequest) {
     }
 
     const tx = buildTransaction(input);
-    const next = await appendTransaction(tx);
+    let next = await appendTransaction(tx);
+    // Buying (or adjusting to a positive share count) re-establishes a holding,
+    // so clear any stale archived flag — otherwise derive() hides the position
+    // even though the cash was spent (the "added a stock but it doesn't show,
+    // it just took the cash" bug).
+    const reEstablishes =
+      tx.ticker !== "CASH" &&
+      (tx.tradeType === "BUY" ||
+        (tx.tradeType === "ADJUSTMENT" && (tx.adjustment?.shares ?? 0) > 0));
+    if (reEstablishes) next = await setArchived(tx.ticker, false);
     const { positions, cash } = derive(next);
     return NextResponse.json({ ok: true, transaction: tx, currentCash: cash, positions });
   } catch (err) {

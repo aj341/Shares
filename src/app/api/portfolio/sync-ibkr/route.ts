@@ -63,6 +63,18 @@ export async function GET(req: NextRequest) {
     const current = new Map(before.positions.map((p) => [p.ticker, p]));
     const ibkrSymbols = new Set(stocks.map((s) => s.symbol));
 
+    // A position IBKR reports again must be UN-archived. Otherwise a name that
+    // got archived while temporarily absent from a lagging statement stays
+    // hidden forever even after it returns — derive() filters archived tickers,
+    // so the holding never reappears (cash moves, position invisible).
+    const unarchived: string[] = [];
+    for (const sym of ibkrSymbols) {
+      if (persisted.archivedTickers.includes(sym)) {
+        await setArchived(sym, false);
+        unarchived.push(sym);
+      }
+    }
+
     // STALENESS GUARD: the Flex statement reflects IBKR's last overnight
     // cycle. If our ledger has a MANUAL entry for a ticker dated AFTER the
     // statement was generated (same-day trade entered by hand), the statement
@@ -118,10 +130,30 @@ export async function GET(req: NextRequest) {
       synced.push(`${s.symbol} → ${s.quantity} @ ${s.avgPrice}`);
     }
 
+    // Don't archive a name you just bought by hand but the broker statement
+    // hasn't caught up to yet (BUY dated on/after the statement). Protects a
+    // freshly-added position from vanishing on the next realign.
+    const recentManualBuys = new Set<string>();
+    if (stmtDate) {
+      for (const tx of persisted.transactions) {
+        if (
+          tx.tradeType === "BUY" &&
+          tx.tradeDate >= stmtDate &&
+          !tx.notes?.includes("IBKR Flex sync")
+        ) {
+          recentManualBuys.add(tx.ticker);
+        }
+      }
+    }
+
     // Archive holdings IBKR no longer reports (sold out elsewhere).
     const archived: string[] = [];
     for (const p of before.positions) {
-      if (!ibkrSymbols.has(p.ticker) && !newerManualTickers.has(p.ticker)) {
+      if (
+        !ibkrSymbols.has(p.ticker) &&
+        !newerManualTickers.has(p.ticker) &&
+        !recentManualBuys.has(p.ticker)
+      ) {
         await setArchived(p.ticker, true);
         archived.push(p.ticker);
       }
@@ -131,6 +163,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       synced,
       skippedStale,
+      unarchived,
       cashPersisted,
       archived,
       cash: statement.cash,
