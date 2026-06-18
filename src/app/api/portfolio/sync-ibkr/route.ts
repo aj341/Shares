@@ -18,6 +18,14 @@ const PRICE_EPS = 0.01;
 const THROTTLE_MS = 5 * 60 * 1000;
 
 /**
+ * How long a hand-entered trade is protected from a stale Flex statement.
+ * Flex lags intraday fills and only refreshes on IBKR's overnight cycle, so a
+ * manual trade must survive until the next statement includes it (~a day),
+ * after which Flex reclaims control.
+ */
+const RECENT_MANUAL_MS = 20 * 60 * 60 * 1000;
+
+/**
  * Cost-basis overrides (ticker → avg price). IBKR's Flex API can disagree with
  * its own app after a corporate action — e.g. the GOOGL→GOOG share-class
  * conversion: the Flex feed reports 366.98 while the app shows 358.66. Pin to
@@ -66,18 +74,19 @@ async function realignToIbkr(debug: boolean) {
     }
   }
 
-  // STALENESS GUARD: a manual entry dated AFTER the statement means the
-  // statement is the stale party — skip that ticker rather than reverting it.
-  const stmtDate = statement.whenGenerated
-    ? `${statement.whenGenerated.slice(0, 4)}-${statement.whenGenerated.slice(4, 6)}-${statement.whenGenerated.slice(6, 8)}`
-    : null;
+  // STALENESS GUARD (timestamp-based). The Flex statement lags intraday fills —
+  // a statement generated at 23:21 won't contain a trade made at 23:33 the SAME
+  // day. The old date-only comparison let a stale same-day statement revert a
+  // hand-entered intraday trade. Instead, protect any ticker whose ledger has a
+  // manual (non-Flex) entry from the last RECENT_MANUAL_MS: long enough to
+  // survive until IBKR's next overnight statement includes the trade, short
+  // enough to hand control back to Flex afterwards. Timezone-agnostic.
+  const now = Date.now();
   const newerManualTickers = new Set<string>();
-  if (stmtDate) {
-    for (const tx of persisted.transactions) {
-      if (tx.tradeDate > stmtDate && !tx.notes?.includes("IBKR Flex sync")) {
-        newerManualTickers.add(tx.ticker);
-      }
-    }
+  for (const tx of persisted.transactions) {
+    if (tx.notes?.includes("IBKR Flex sync")) continue;
+    const ageMs = now - new Date(tx.createdAt).getTime();
+    if (ageMs >= 0 && ageMs < RECENT_MANUAL_MS) newerManualTickers.add(tx.ticker);
   }
 
   // Cash moves with trades — when ANY manual entry outdates the statement,
@@ -123,16 +132,10 @@ async function realignToIbkr(debug: boolean) {
 
   // Don't archive a name you just bought by hand the statement hasn't caught up to.
   const recentManualBuys = new Set<string>();
-  if (stmtDate) {
-    for (const tx of persisted.transactions) {
-      if (
-        tx.tradeType === "BUY" &&
-        tx.tradeDate >= stmtDate &&
-        !tx.notes?.includes("IBKR Flex sync")
-      ) {
-        recentManualBuys.add(tx.ticker);
-      }
-    }
+  for (const tx of persisted.transactions) {
+    if (tx.tradeType !== "BUY" || tx.notes?.includes("IBKR Flex sync")) continue;
+    const ageMs = now - new Date(tx.createdAt).getTime();
+    if (ageMs >= 0 && ageMs < RECENT_MANUAL_MS) recentManualBuys.add(tx.ticker);
   }
 
   // Archive holdings IBKR no longer reports (sold out elsewhere).
