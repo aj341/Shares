@@ -60,6 +60,32 @@ export const PORTFOLIO_RULES = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// [sizing] Concentration / position-sizing limits
+// ---------------------------------------------------------------------------
+
+/**
+ * Portfolio-level concentration limits consumed by `assessConcentration`
+ * (src/lib/concentration.ts) and, opt-in, by the redistribution engine.
+ *
+ * All values are FRACTIONS of EQUITY (the invested book, excl. cash). Every
+ * default is visible and overridable here. Note: `maxSingleNameWeight` (0.30)
+ * is intentionally TIGHTER than PORTFOLIO_RULES.maxPositionWeight (0.35) — the
+ * concentration module is a stricter advisory layer; the redistribution engine
+ * still uses the 0.35 hard cap for the after-snapshot, and only ADDS the
+ * concentration checks below when they would block a buy or flag a trim.
+ */
+export const CONCENTRATION_LIMITS = {
+  /** Hard cap on any single name (30% of equity). */
+  maxSingleNameWeight: 0.30,
+  /** Soft warning threshold for a single name (25% of equity). */
+  warnSingleName: 0.25,
+  /** Hard cap on the top-3 combined weight (65% of equity). */
+  maxTop3: 0.65,
+  /** Hard cap on any single sector's weight (50% of equity). */
+  maxSectorWeight: 0.50,
+} as const;
+
+// ---------------------------------------------------------------------------
 // Scoring engine config
 // ---------------------------------------------------------------------------
 
