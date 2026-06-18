@@ -38,6 +38,8 @@ import { SignalPerformance } from "@/components/dashboard/signal-performance";
 // [calibration] Additive conviction-calibration panel.
 import { ConvictionCalibration } from "@/components/dashboard/conviction-calibration";
 import { EventsRadar } from "@/components/dashboard/events-radar";
+// [earnings] Additive earnings catalyst calendar panel.
+import { EarningsCalendar } from "@/components/dashboard/earnings-calendar";
 import { PortfolioRisk } from "@/components/dashboard/portfolio-risk";
 // [sizing] concentration / position-sizing panel
 import { ConcentrationPanel } from "@/components/dashboard/concentration-panel";
@@ -495,6 +497,8 @@ function ReadyView({
             {/* [sizing] concentration / position-sizing widget */}
             <ConcentrationPanel />
             <EventsRadar />
+            {/* [earnings] earnings calendar / revisions / PEAD panel */}
+            <EarningsCalendar />
           </div>
 
           <RealizedPnl />

@@ -13,6 +13,8 @@ import { extractRsi, scoreHolding } from "@/lib/scoring";
 import { sectorFor } from "@/lib/sectors";
 // [calibration][integration] additive conviction overlay on watchlist items.
 import { getCalibrationCached, convictionForSignal } from "@/lib/calibration";
+// [earnings] additive earnings catalyst overlay (calendar / revisions / PEAD).
+import { getEarningsSignals } from "@/lib/earnings-signals";
 import { getTopRanked, type WatchlistRanking } from "@/lib/watchlist-screen";
 import { universeEntryFor } from "@/lib/universe";
 import type {
@@ -316,6 +318,13 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
 
   const candidates = await resolveCandidates();
 
+  // [earnings] Batch earnings catalyst signals for the candidate set
+  // (calendar / estimate revisions / PEAD). null-safe + cached; display-only.
+  const wlEarnings = await getEarningsSignals(
+    candidates.map((c) => c.ticker)
+  ).catch(() => new Map<string, import("@/lib/types").EarningsSignal>());
+  // [earnings] end
+
   // [calibration][integration] historical conviction overlay (null-safe).
   const wlCalibration = await getCalibrationCached().catch(() => null);
   // [factors] Benchmark/sector-ETF history fetched ONCE for the whole list.
@@ -408,6 +417,10 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
         20
       );
     }
+    // [earnings] Additive earnings catalyst overlay (display-only; null-safe).
+    const eSig = wlEarnings.get(it.ticker);
+    if (eSig) it.earnings = eSig;
+    // [earnings] end
   });
   // Rank: best-entry first, then by upside desc.
   const order: Record<WatchlistBucket, number> = { best_entry: 0, momentum: 1, neutral: 2, overbought: 3 };

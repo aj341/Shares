@@ -25,6 +25,8 @@ import { loadBenchmarkBundle } from "@/lib/relative-strength";
 import { computeFactorBundle, rankCrossSection, buildFactorMetrics } from "@/lib/factors";
 // [calibration] Additive conviction overlay (never alters score/signal).
 import { getCalibrationCached, convictionForSignal } from "@/lib/calibration";
+// [earnings] additive earnings catalyst overlay (calendar / revisions / PEAD).
+import { getEarningsSignals } from "@/lib/earnings-signals";
 import * as finnhub from "@/lib/finnhub";
 import type {
   Announcement,
@@ -230,6 +232,17 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
     )
   );
 
+  // [earnings] Batch earnings catalyst signals for the whole book (calendar,
+  // estimate revisions, PEAD). One Mboum/Finnhub fetch chain per ticker, all
+  // null-safe + cached in-module; any miss simply leaves the field absent and
+  // NEVER affects score/signal.
+  const earningsByTicker = isMboumConfigured()
+    ? await getEarningsSignals(positions.map((p) => p.ticker)).catch(
+        () => new Map<string, import("@/lib/types").EarningsSignal>()
+      )
+    : new Map<string, import("@/lib/types").EarningsSignal>();
+  // [earnings] end
+
   // [factors] Cross-sectional relative-strength + factor dimension.
   // Benchmark/sector-ETF history is fetched ONCE for the whole set; per-holding
   // closes reuse Mboum (cached). All null-safe: any miss leaves fields absent.
@@ -403,6 +416,9 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       conviction: degraded
         ? undefined
         : convictionForSignal(calibration, signal, score, 20),
+      // [earnings] Additive earnings catalyst overlay (display-only; null-safe).
+      earnings: earningsByTicker.get(b.position.ticker) ?? undefined,
+      // [earnings] end
     };
   });
 
