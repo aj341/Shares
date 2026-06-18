@@ -18,6 +18,8 @@ import { getStockHistory, isMboumConfigured } from "@/lib/mboum";
 // [factors] additive cross-sectional dimension
 import { loadBenchmarkBundle } from "@/lib/relative-strength";
 import { computeFactorBundle, rankCrossSection, buildFactorMetrics } from "@/lib/factors";
+// [calibration] Additive conviction overlay (never alters score/signal).
+import { getCalibrationCached, convictionForSignal } from "@/lib/calibration";
 import * as finnhub from "@/lib/finnhub";
 import type {
   Announcement,
@@ -121,10 +123,12 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
   //    Engine works in USD (US equities are USD-priced); we convert to AUD for
   //    display in toAudPortfolio. Cash is the multi-currency broker balance,
   //    summed to USD here so the USD engine (redistribution) stays consistent.
-  const [{ positions, state }, fx, brokerCash] = await Promise.all([
+  const [{ positions, state }, fx, brokerCash, calibration] = await Promise.all([
     getDerivedPortfolio(),
     getFxRates(),
     readBrokerCash().catch(() => null),
+    // [calibration] Historical conviction overlay; null-safe (no DB/snapshots -> null).
+    getCalibrationCached().catch(() => null),
   ]);
 
   // Cash: prefer the IBKR-synced balances (NATIVE currency → AUD via live FX);
@@ -341,6 +345,12 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       // [factors] additive — relative strength + factor scores + metric rows.
       relativeStrength: rankedFactors[i].relativeStrength,
       factors: rankedFactors[i].factors,
+      // [calibration] Additive overlay. Withheld for degraded holdings (no
+      // trustworthy live signal). Defaults to 20-calendar-day horizon. Never
+      // affects score/signal above.
+      conviction: degraded
+        ? undefined
+        : convictionForSignal(calibration, signal, score, 20),
     };
   });
 

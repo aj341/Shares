@@ -140,6 +140,33 @@ export type StockVerdict = {
  */
 export type DataQuality = "live" | "degraded" | "mock";
 
+// ---------------------------------------------------------------------------
+// [calibration] Conviction overlay (ADDITIVE)
+// ---------------------------------------------------------------------------
+//
+// A purely additive, historically-derived "how much has this signal/band earned
+// our trust" overlay. It NEVER changes the base score or signal. Attached
+// optionally to Holding / WatchlistItem by portfolio.ts. Mirrors the runtime
+// `Conviction` type in @/lib/calibration (kept structurally identical here so
+// shared types stay free of the server-only calibration import). null-safe:
+// always optional; absence means "calibration unavailable / not computed".
+export type ConvictionLevel = "High" | "Medium" | "Low" | "Unproven";
+
+export type ConvictionOverlay = {
+  level: ConvictionLevel;
+  /** 0..1 normalized conviction weight (0.5 = neutral). */
+  weight: number;
+  /** 0..1 historical win-rate of this signal/band at the horizon. */
+  winRate: number;
+  /** Mean forward return (fraction) of this signal/band at the horizon. */
+  avgReturn: number;
+  sampleSize: number;
+  /** Horizon in calendar days the overlay was read at. */
+  horizon: number;
+  /** Whether the match came from the exact signal, the score band, or neither. */
+  basis: "signal" | "band" | "none";
+};
+
 export type Holding = {
   ticker: string;
   companyName: string;
@@ -161,6 +188,8 @@ export type Holding = {
   // [factors] Optional additive cross-sectional fields (null-safe).
   relativeStrength?: RelativeStrength;
   factors?: FactorScores;
+  // [calibration] Optional conviction overlay (additive; null-safe).
+  conviction?: ConvictionOverlay;
 };
 
 // ---------------------------------------------------------------------------
@@ -539,6 +568,8 @@ export type WatchlistItem = {
   // [factors] Optional additive cross-sectional fields (null-safe).
   relativeStrength?: RelativeStrength;
   factors?: FactorScores;
+  // [calibration] Optional conviction overlay (additive; null-safe).
+  conviction?: ConvictionOverlay;
 };
 
 export type WatchlistResponse = {

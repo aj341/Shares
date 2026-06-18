@@ -33,6 +33,8 @@ import { WatchlistTab } from "@/components/dashboard/watchlist-tab";
 import { ArticleAnalyzer } from "@/components/dashboard/article-analyzer";
 import { AlertsBanner } from "@/components/dashboard/alerts-banner";
 import { SignalPerformance } from "@/components/dashboard/signal-performance";
+// [calibration] Additive conviction-calibration panel.
+import { ConvictionCalibration } from "@/components/dashboard/conviction-calibration";
 import { EventsRadar } from "@/components/dashboard/events-radar";
 import { PortfolioRisk } from "@/components/dashboard/portfolio-risk";
 import { RealizedPnl } from "@/components/dashboard/realized-pnl";
@@ -454,6 +456,9 @@ function ReadyView({
           <RealizedPnl />
 
           <SignalPerformance />
+
+          {/* [calibration] Additive conviction overlay panel. */}
+          <ConvictionCalibration />
 
           <section className="space-y-3">
             <SectionTitle
