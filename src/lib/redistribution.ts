@@ -23,7 +23,8 @@ import type {
  * respecting the 30% position cap, the 5% cash buffer and whole-share rounding.
  */
 
-const { maxPositionWeight, targetCashBufferPct, minTradeSize } = PORTFOLIO_RULES;
+const { maxPositionWeight, targetCashBufferPct, minTradeSize, weakTrimTargetWeight } =
+  PORTFOLIO_RULES;
 
 // [sizing] TRIM_CONCENTRATION is a distinct decision from the existing weak-score
 // TRIM — it fires when a name (or its sector) is already over a concentration
@@ -107,6 +108,23 @@ function decide(h: Holding, conc: ConcCtx = null): Decision {
 /** Shares to trim: ~30% of the position, whole shares, respecting min trade size. */
 function trimShares(h: Holding): number {
   const raw = Math.floor(h.shares * 0.3);
+  if (raw <= 0) return 0;
+  if (raw * h.currentPrice < minTradeSize) return 0;
+  return raw;
+}
+
+/**
+ * [trim-to-target] Shares to trim a WEAK name (score 40–54) straight down to
+ * its target weight in ONE move, instead of slicing 30% each cycle. Returns 0
+ * (→ hold) when the name is already at/under target or the trim is below the
+ * minimum trade size.
+ */
+function weakTrimShares(h: Holding, totalPortfolioValue: number): number {
+  if (h.currentPrice <= 0 || totalPortfolioValue <= 0) return 0;
+  const targetShares = Math.floor(
+    (weakTrimTargetWeight * totalPortfolioValue) / h.currentPrice
+  );
+  const raw = h.shares - targetShares;
   if (raw <= 0) return 0;
   if (raw * h.currentPrice < minTradeSize) return 0;
   return raw;
@@ -199,9 +217,14 @@ export function buildRedistribution(
       proceeds = h.shares * h.currentPrice;
       realisedPnl = proceeds - h.costBasis;
     } else if (decision === "TRIM" || decision === "TRIM_CONCENTRATION") {
-      // [sizing] TRIM_CONCENTRATION shares the same execution path as TRIM
-      // (~30% of the position, whole shares, min-trade-size gated).
-      const ts = trimShares(h);
+      // [sizing] TRIM_CONCENTRATION shares the same execution path as TRIM.
+      // [trim-to-target] A WEAK name (score <55) trims straight to its target
+      // weight in one move; overbought-overweight names and concentration
+      // breaches keep the gradual ~30% step.
+      const ts =
+        decision === "TRIM" && h.score < 55
+          ? weakTrimShares(h, totalPortfolioValue)
+          : trimShares(h);
       sharesAfter = h.shares - ts;
       proceeds = ts * h.currentPrice;
       realisedPnl = ts * (h.currentPrice - h.entryPrice);
@@ -255,11 +278,9 @@ export function buildRedistribution(
             ? `Score ${w.holding.score} (SELL) with ${w.holding.verdict.verdict} verdict — exit full position.`
             : w.decision === "TRIM_CONCENTRATION"
               ? concRationale
-              : `Trim ${soldShares} shares — ${
-                  w.holding.score < 55
-                    ? `weak score ${w.holding.score}`
-                    : "overbought with a large gain near the position cap"
-                }.`,
+              : w.holding.score < 55
+                ? `Trim ${soldShares} shares down to a ~${(weakTrimTargetWeight * 100).toFixed(0)}% target weight in one move — weak score ${w.holding.score}.`
+                : `Trim ${soldShares} shares — overbought with a large gain near the position cap.`,
       });
     }
   }

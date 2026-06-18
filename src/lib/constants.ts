@@ -57,6 +57,10 @@ export const PORTFOLIO_RULES = {
   wholeSharesOnly: true,
   /** Ignore trims whose notional value is below this (AUD). */
   minTradeSize: 250,
+  /** [trim-to-target] Weak-scored names (40–54) are trimmed straight DOWN to
+   *  this target weight (fraction of total portfolio value) in a SINGLE move,
+   *  instead of repeatedly slicing 30%. If already at/under it, hold. */
+  weakTrimTargetWeight: 0.05,
 } as const;
 
 // ---------------------------------------------------------------------------
