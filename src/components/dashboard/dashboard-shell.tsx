@@ -223,6 +223,17 @@ export function DashboardShell() {
       <Header
         source={state.status === "ready" ? state.data.source : undefined}
         asOf={state.status === "ready" ? state.data.asOf : undefined}
+        /* [exthours] Surface the current market session in the header badge. */
+        session={
+          state.status === "ready"
+            ? state.data.portfolio.holdings.find((h) => h.session)?.session
+            : undefined
+        }
+        extended={
+          state.status === "ready"
+            ? state.data.portfolio.holdings.some((h) => h.extendedHours)
+            : false
+        }
         onRefresh={refreshAll}
         onSync={() => void syncNow()}
         syncing={syncing}
@@ -267,6 +278,10 @@ export function DashboardShell() {
 function Header({
   source,
   asOf,
+  // [exthours] Current US market session + whether a live extended-hours print
+  // is being surfaced. Drives the small session badge next to the data badge.
+  session,
+  extended,
   onRefresh,
   onSync,
   syncing,
@@ -274,6 +289,8 @@ function Header({
 }: {
   source?: string;
   asOf?: string;
+  session?: "pre" | "regular" | "post" | "closed";
+  extended?: boolean;
   onRefresh: () => void;
   onSync: () => void;
   syncing: boolean;
@@ -304,6 +321,25 @@ function Header({
             >
               {source === "mock" ? "Mock data" : `Live · ${source}`}
               {freshness ? ` · ${freshness}` : ""}
+            </Badge>
+          ) : null}
+          {/* [exthours] Market-session badge. Highlighted when a live pre/post
+              -market print is being surfaced instead of the prior close. */}
+          {session && session !== "regular" ? (
+            <Badge
+              variant={extended ? "positive" : "neutral"}
+              title={
+                extended
+                  ? "Showing a live extended-hours price (regular market closed)."
+                  : "Regular market closed; showing the prior close."
+              }
+            >
+              {session === "pre"
+                ? "Pre-Market"
+                : session === "post"
+                ? "After Hours"
+                : "Closed"}
+              {extended ? " · live" : ""}
             </Badge>
           ) : null}
           <Button
