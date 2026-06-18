@@ -13,6 +13,8 @@ import type {
   TradeType,
   WatchlistResponse,
 } from "@/lib/types";
+// [top3] response type lives with the engine, not in shared types.
+import type { TopMovesResponse } from "@/lib/top-moves";
 
 /** Client-side typed fetchers for the dashboard API routes. */
 
@@ -50,6 +52,11 @@ export function fetchWatchlist(): Promise<WatchlistResponse> {
 
 export function fetchBrief(): Promise<DailyBrief> {
   return getJson<DailyBrief>("/api/brief");
+}
+
+// [top3] AI "Top 3 Moves Today".
+export function fetchTopMoves(): Promise<TopMovesResponse> {
+  return getJson<TopMovesResponse>("/api/top-moves");
 }
 
 export function fetchResearch(ticker: string): Promise<{ holding: Holding }> {
