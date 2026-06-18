@@ -749,3 +749,18 @@ export type TickerDetection = {
   /** ticker -> mention count, for ranking/secondary display */
   counts: Record<string, number>;
 };
+
+// [news] Hard-catalyst news triage. Types live in src/lib/catalysts.ts (their
+// home is the feature module, kept out of this shared file). Re-exported here
+// as a convenience so consumers and sibling features can `import type` them
+// from "@/lib/types". Note: the `news` signal these produce can feed the
+// top-3 engine's `Top3SignalInputs.news` slot (a sibling marker feature) —
+// pass NewsCatalyst[] / a derived score without changing existing math.
+export type {
+  CatalystType,
+  CatalystDirection,
+  CatalystMateriality,
+  CatalystClassification,
+  NewsCatalyst,
+  CatalystsResult,
+} from "@/lib/catalysts";

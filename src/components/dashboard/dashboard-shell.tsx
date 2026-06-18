@@ -49,6 +49,8 @@ import { RealizedPnl } from "@/components/dashboard/realized-pnl";
 import { ProvidersBadge } from "@/components/dashboard/providers-badge";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
 import { AnnouncementsFeed } from "@/components/dashboard/announcements-feed";
+// [news] Additive hard-catalyst feed (AI-triaged company news).
+import { CatalystFeed } from "@/components/dashboard/catalyst-feed";
 import { DisagreementScorecard } from "@/components/dashboard/disagreement-scorecard";
 import {
   PortfolioDialogs,
@@ -533,6 +535,15 @@ function ReadyView({
                 <DisagreementScorecard rows={disagreement} />
               </CardContent>
             </Card>
+          </section>
+
+          {/* [news] Hard catalysts — AI-triaged news, additive (own data fetch). */}
+          <section className="space-y-3">
+            <SectionTitle
+              title="Hard catalysts"
+              subtitle="AI-triaged news — only real catalysts (earnings, guidance, M&A, regulatory, contracts)."
+            />
+            <CatalystFeed />
           </section>
 
           <section className="space-y-3">
