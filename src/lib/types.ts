@@ -22,6 +22,46 @@ export type MetricCategory =
 
 export type StatusTone = "positive" | "neutral" | "negative";
 
+// [factors] Additive cross-sectional dimension (relative strength + factors).
+// These are OPTIONAL on Holding / WatchlistItem and never feed the existing
+// 0-100 score or Signal. Computed at portfolio-build level where the full set
+// (holdings + watchlist) is known. See src/lib/factors.ts.
+export type RelativeStrength = {
+  /** Trailing total return, fraction. 3M ~= 63 trading days, 6M ~= 126. */
+  ret3m: number | null;
+  ret6m: number | null;
+  /** Stock return minus QQQ return over the same window (fraction). */
+  vsQqq3m: number | null;
+  vsQqq6m: number | null;
+  /** Stock return minus sector-ETF return (null when no ETF mapped). */
+  vsSector3m: number | null;
+  vsSector6m: number | null;
+  /** Sector ETF used for vsSector* (e.g. "SMH"); null when unmapped. */
+  sectorEtf: string | null;
+  /** 1-based cross-sectional rank by vsQqq6m (1 = strongest); null if unranked. */
+  rank: number | null;
+  /** 0-100 percentile of that rank (higher = stronger). */
+  percentile: number | null;
+  /** Size of the ranked set (holdings + watchlist). */
+  universeSize: number;
+};
+
+export type FactorScores = {
+  /** Each sub-factor 0-100 ("higher is better"); null when data is missing. */
+  momentum: number | null;
+  lowVol: number | null;
+  value: number | null;
+  quality: number | null;
+  /** Equal-weight mean of available sub-factors, 0-100; null if none. */
+  composite: number | null;
+  /** Raw inputs kept for transparency. */
+  momentumRaw: number | null;
+  volRaw: number | null;
+  /** Cross-sectional rank/percentile by composite (set during ranking). */
+  compositeRank?: number | null;
+  compositePercentile?: number | null;
+};
+
 export type Metric = {
   name: string;
   value: string | number;
@@ -114,6 +154,9 @@ export type Holding = {
   metrics: Metric[];
   announcements: Announcement[];
   verdict: StockVerdict;
+  // [factors] Optional additive cross-sectional fields (null-safe).
+  relativeStrength?: RelativeStrength;
+  factors?: FactorScores;
 };
 
 // ---------------------------------------------------------------------------
@@ -489,6 +532,9 @@ export type WatchlistItem = {
   keyRisk: string;
   technicalSignal: string;
   recentAnalystActions: AnalystAction[];
+  // [factors] Optional additive cross-sectional fields (null-safe).
+  relativeStrength?: RelativeStrength;
+  factors?: FactorScores;
 };
 
 export type WatchlistResponse = {

@@ -1,6 +1,14 @@
 import { buildStockTechnicals } from "@/lib/technicals";
 import { getUpgradeDowngrade, isMboumConfigured } from "@/lib/mboum";
 import { computeLiveMetrics } from "@/lib/live-metrics";
+// [factors] additive cross-sectional dimension
+import { getStockHistory } from "@/lib/mboum";
+import { loadBenchmarkBundle } from "@/lib/relative-strength";
+import {
+  computeFactorBundle,
+  rankCrossSection,
+  type RankableInput,
+} from "@/lib/factors";
 import { extractRsi, scoreHolding } from "@/lib/scoring";
 import { sectorFor } from "@/lib/sectors";
 import { getTopRanked, type WatchlistRanking } from "@/lib/watchlist-screen";
@@ -306,13 +314,38 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
 
   const candidates = await resolveCandidates();
 
+  // [factors] Benchmark/sector-ETF history fetched ONCE for the whole list.
+  const benchmarkBundle = await loadBenchmarkBundle(
+    candidates.map((c) => c.ticker)
+  ).catch(() => ({} as Record<string, number[]>));
+  // [factors] per-index raw factor bundles, ranked after the list is built.
+  const wlFactorBundles: Array<Pick<RankableInput, "relativeStrengthRaw" | "factors">> = [];
+
   const items = await Promise.all(
-    candidates.map(async (c): Promise<WatchlistItem> => {
-      const [tech, actions, engine] = await Promise.all([
+    candidates.map(async (c, idx): Promise<WatchlistItem> => {
+      const [tech, actions, engine, candleCloses, liveMetrics] = await Promise.all([
         buildStockTechnicals(c.ticker),
         getUpgradeDowngrade(c.ticker),
         scoreOnEngine(c.ticker),
+        // [factors] adjusted closes for RS / momentum / low-vol (null-safe).
+        getStockHistory(c.ticker, { interval: "1d", monthsBack: 13 })
+          .then((cs) => cs.map((x) => x.adjClose))
+          .catch(() => [] as number[]),
+        // computeLiveMetrics is cached (10 min) and already called by
+        // scoreOnEngine; reuse it for the value/quality factor inputs.
+        computeLiveMetrics(c.ticker, []).catch(() => null),
       ]);
+      // [factors] per-name factor bundle (ranked after the full list is built).
+      const factorBundle = computeFactorBundle({
+        ticker: c.ticker,
+        closes: candleCloses,
+        bundle: benchmarkBundle,
+        metrics: liveMetrics ?? [],
+      });
+      wlFactorBundles[idx] = {
+        relativeStrengthRaw: factorBundle.relativeStrengthRaw,
+        factors: factorBundle.factors,
+      };
       const price = tech.sparkline.at(-1) ?? null;
       // Trend = price above its 50- (or 20-) day MA; quality = engine BUY-grade.
       const trendUp = tech.priceVsMa50 === "above" || tech.priceVsMa20 === "above";
@@ -346,6 +379,21 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
     })
   );
 
+  // [factors] Cross-sectional rank across the watchlist set, then attach the
+  // additive relativeStrength + factors fields (and append RS metric rows
+  // where the item already carries metrics — watchlist items do not surface a
+  // MetricGrid, so we attach the fields only; the holdings path renders rows).
+  const wlRanked = rankCrossSection(
+    items.map((_, i) => ({
+      ticker: items[i].ticker,
+      relativeStrengthRaw: wlFactorBundles[i].relativeStrengthRaw,
+      factors: wlFactorBundles[i].factors,
+    }))
+  );
+  items.forEach((it, i) => {
+    it.relativeStrength = wlRanked[i].relativeStrength;
+    it.factors = wlRanked[i].factors;
+  });
   // Rank: best-entry first, then by upside desc.
   const order: Record<WatchlistBucket, number> = { best_entry: 0, momentum: 1, neutral: 2, overbought: 3 };
   items.sort((a, b) => {

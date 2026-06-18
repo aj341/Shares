@@ -15,6 +15,9 @@ import { computeLiveMetrics } from "@/lib/live-metrics";
 import { buildLiveVerdict } from "@/lib/verdict";
 import { enhanceVerdict, getCachedEnhancedVerdict } from "@/lib/verdict-llm";
 import { getStockHistory, isMboumConfigured } from "@/lib/mboum";
+// [factors] additive cross-sectional dimension
+import { loadBenchmarkBundle } from "@/lib/relative-strength";
+import { computeFactorBundle, rankCrossSection, buildFactorMetrics } from "@/lib/factors";
 import * as finnhub from "@/lib/finnhub";
 import type {
   Announcement,
@@ -178,6 +181,42 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
     )
   );
 
+  // [factors] Cross-sectional relative-strength + factor dimension.
+  // Benchmark/sector-ETF history is fetched ONCE for the whole set; per-holding
+  // closes reuse Mboum (cached). All null-safe: any miss leaves fields absent.
+  const factorTickers = positions.map((p) => p.ticker);
+  const [benchmarkBundle, holdingCloses] = isMboumConfigured()
+    ? await Promise.all([
+        loadBenchmarkBundle(factorTickers).catch(() => ({} as Record<string, number[]>)),
+        Promise.all(
+          positions.map((p) =>
+            getStockHistory(p.ticker, { interval: "1d", monthsBack: 13 })
+              .then((c) => c.map((x) => x.adjClose))
+              .catch(() => [] as number[])
+          )
+        ),
+      ])
+    : [{} as Record<string, number[]>, positions.map(() => [] as number[])];
+
+  const factorBundles = positions.map((p, i) =>
+    computeFactorBundle({
+      ticker: p.ticker,
+      closes: holdingCloses[i] ?? [],
+      bundle: benchmarkBundle,
+      metrics: liveMetricsArr[i] ?? [],
+    })
+  );
+  // Rank across the holdings set. (To rank holdings + watchlist TOGETHER, a
+  // caller can collect RankableInput[] from both builders and call
+  // rankCrossSection once — see report / buildWatchlist for the parallel path.)
+  const rankedFactors = rankCrossSection(
+    factorBundles.map((fb) => ({
+      ticker: "",
+      relativeStrengthRaw: fb.relativeStrengthRaw,
+      factors: fb.factors,
+    }))
+  );
+
   const base = positions.map((p: DerivedPosition, i: number) => {
     const { currentPrice, dayChangePct } = quotes[i];
     const costBasis = p.shares * p.entryPrice;
@@ -274,6 +313,13 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       verdict = unavailableVerdict();
     }
 
+    // [factors] Additive metric rows appended for DISPLAY ONLY — they are
+    // NOT passed to scoreHolding, so the existing 0-100 score is unchanged.
+    const factorMetricRows = degraded
+      ? []
+      : buildFactorMetrics(rankedFactors[i].relativeStrength, rankedFactors[i].factors);
+    const displayMetrics = [...metrics, ...factorMetricRows];
+
     return {
       ticker: b.position.ticker,
       companyName: b.position.companyName,
@@ -289,9 +335,12 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       portfolioWeight: round2(portfolioWeight),
       score,
       signal,
-      metrics,
+      metrics: displayMetrics,
       announcements,
       verdict,
+      // [factors] additive — relative strength + factor scores + metric rows.
+      relativeStrength: rankedFactors[i].relativeStrength,
+      factors: rankedFactors[i].factors,
     };
   });
 

@@ -24,6 +24,14 @@ import { VerdictPanel } from "@/components/dashboard/verdict-panel";
 import { ExecutiveSentiment } from "@/components/dashboard/executive-sentiment";
 import type { Holding } from "@/lib/types";
 
+// [factors] colour a cross-sectional percentile (higher = stronger).
+function rsRankClass(percentile: number | null | undefined): string {
+  if (percentile == null) return "text-muted-foreground";
+  if (percentile >= 67) return "[color:hsl(var(--positive))]";
+  if (percentile <= 33) return "[color:hsl(var(--negative))]";
+  return "text-foreground";
+}
+
 export function StockDetailSheet({
   holding,
   open,
@@ -122,6 +130,17 @@ function DetailBody({ holding: h }: { holding: Holding }) {
               className={scoreColorClass(h.score)}
             />
             <Stat label="Cost basis" value={formatCurrency(h.costBasis, { compact: true })} />
+            {/* [factors] compact RS rank */}
+            {h.relativeStrength?.rank != null && (
+              <Stat
+                label="RS rank"
+                value={`#${h.relativeStrength.rank}/${h.relativeStrength.universeSize}`}
+                className={rsRankClass(h.relativeStrength.percentile)}
+              />
+            )}
+            {h.factors?.composite != null && (
+              <Stat label="Factor" value={`${h.factors.composite}/100`} className={scoreColorClass(h.factors.composite)} />
+            )}
           </div>
         ) : (
           <div className="mt-4 grid grid-cols-3 gap-4">
@@ -136,6 +155,21 @@ function DetailBody({ holding: h }: { holding: Holding }) {
               className={scoreColorClass(h.score)}
             />
             <Stat label="Day move" value={formatPct(h.dayChangePct, { sign: true })} className={signedTextClass(h.dayChangePct)} />
+            {/* [factors] compact RS rank */}
+            {h.relativeStrength?.rank != null && (
+              <Stat
+                label="RS rank"
+                value={`#${h.relativeStrength.rank}/${h.relativeStrength.universeSize}`}
+                className={rsRankClass(h.relativeStrength.percentile)}
+              />
+            )}
+            {h.relativeStrength?.vsQqq6m != null && (
+              <Stat
+                label="6M vs QQQ"
+                value={formatPct(h.relativeStrength.vsQqq6m * 100, { sign: true })}
+                className={signedTextClass(h.relativeStrength.vsQqq6m)}
+              />
+            )}
           </div>
         )}
       </SheetHeader>
