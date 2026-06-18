@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, formatPct, formatUsd } from "@/lib/utils";
+import { scoreBadgeClass } from "@/lib/ui";
 import type {
   WatchlistBucket,
   WatchlistItem,
@@ -207,7 +208,17 @@ function WatchRow({
           />
           <Stat label="RSI" value={item.rsi != null ? String(item.rsi) : "—"} className="[color:hsl(var(--warning))]" />
           <Stat label="Target" value={item.targetMean != null ? formatUsd(item.targetMean) : "—"} className="[color:hsl(var(--brand))]" />
-          <Badge variant="outline" className={meta.tone}>{item.signalLabel}</Badge>
+          <span
+            className={cn(
+              "shrink-0 rounded-md px-2 py-1 text-sm font-bold leading-none font-mono-nums",
+              scoreBadgeClass(item.engineScore)
+            )}
+            title="Quality score / 100 — 70+ competes for capital"
+          >
+            {item.engineScore != null ? item.engineScore : "—"}
+            <span className="ml-0.5 text-[9px] font-normal opacity-70">/100</span>
+          </span>
+          <Badge variant="outline" className={cn(meta.tone, "hidden sm:inline-flex")}>{item.signalLabel}</Badge>
           <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
         </div>
       </button>

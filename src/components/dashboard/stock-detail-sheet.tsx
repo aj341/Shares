@@ -10,7 +10,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn, formatCurrency, formatNumber, formatPct, formatUsd } from "@/lib/utils";
-import { scoreColorClass, signalToVariant, signedTextClass } from "@/lib/ui";
+import {
+  researchLabel,
+  researchVariant,
+  scoreColorClass,
+  signalToVariant,
+  signedTextClass,
+} from "@/lib/ui";
 import { STATUS_LABELS } from "@/lib/constants";
 import { MetricGrid } from "@/components/dashboard/metric-grid";
 import { AnnouncementsTimeline } from "@/components/dashboard/announcements-timeline";
@@ -73,8 +79,8 @@ function DetailBody({ holding: h }: { holding: Holding }) {
           <div>
             <SheetTitle className="flex items-center gap-2 text-xl">
               {h.ticker}
-              <Badge variant={signalToVariant(h.signal)}>
-                {STATUS_LABELS[h.signal]}
+              <Badge variant={held ? signalToVariant(h.signal) : researchVariant(h.score)}>
+                {held ? STATUS_LABELS[h.signal] : researchLabel(h.score)}
               </Badge>
               {!held && (
                 <Badge variant="outline" className="text-[10px]">
@@ -124,7 +130,11 @@ function DetailBody({ holding: h }: { holding: Holding }) {
               value={`${h.score}/100`}
               className={scoreColorClass(h.score)}
             />
-            <Stat label="Signal" value={STATUS_LABELS[h.signal]} />
+            <Stat
+              label="Verdict"
+              value={researchLabel(h.score)}
+              className={scoreColorClass(h.score)}
+            />
             <Stat label="Day move" value={formatPct(h.dayChangePct, { sign: true })} className={signedTextClass(h.dayChangePct)} />
           </div>
         )}

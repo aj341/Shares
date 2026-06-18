@@ -48,6 +48,30 @@ export function toneTextClass(tone: StatusTone): string {
   return "text-muted-foreground";
 }
 
+/** Non-held (watchlist) verdict — buy-side language, never holder actions like Trim/Sell. */
+export function researchLabel(score: number): string {
+  if (score >= 70) return "Buy candidate";
+  if (score >= 55) return "Watch";
+  if (score >= 40) return "Marginal";
+  return "Avoid";
+}
+
+export function researchVariant(score: number): BadgeVariant {
+  if (score >= 70) return "positive";
+  if (score >= 55) return "neutral";
+  if (score >= 40) return "warning";
+  return "negative";
+}
+
+/** Colored background pill for a 0-100 quality score chip (used on watchlist cards). */
+export function scoreBadgeClass(score: number | null | undefined): string {
+  if (score == null) return "bg-muted text-muted-foreground";
+  if (score >= 70) return "bg-positive-muted [color:hsl(var(--positive))]";
+  if (score >= 55) return "bg-muted text-foreground";
+  if (score >= 40) return "bg-warning-muted [color:hsl(var(--warning))]";
+  return "bg-negative-muted [color:hsl(var(--negative))]";
+}
+
 export function scoreColorClass(score: number): string {
   if (score >= 70) return "[color:hsl(var(--positive))]";
   if (score >= 55) return "text-foreground";
