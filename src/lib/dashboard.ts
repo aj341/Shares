@@ -12,6 +12,8 @@ import { getMarketRegime } from "@/lib/regime";
 import { buildWatchlist } from "@/lib/watchlist";
 // [top3] AI "Top 3 Moves Today" — additive policy engine over existing signals.
 import { buildTopMoves, type Top3SignalInputs, type TopMovesResponse } from "@/lib/top-moves";
+// [top3][integration] sibling hard-catalyst feed -> Top3 `news` slot (null-safe).
+import { buildCatalysts, type CatalystName, type NewsCatalyst } from "@/lib/catalysts";
 import { sectorFor } from "@/lib/sectors";
 import { isDatabaseConfigured, query } from "@/lib/db";
 import { buildDisagreementRow } from "@/lib/announcements";
@@ -252,12 +254,13 @@ export async function buildTopMovesData(): Promise<TopMovesResponse> {
     newPositionCandidates: candidates,
   });
 
-  // [top3] Optional sibling signals. Only `regime` is currently shipped; the
-  // earnings/news/insider slots stay undefined until those features land. See
-  // the wiring instructions in src/lib/top-moves.ts.
+  // [top3][integration] Wire the now-merged sibling signals into the Top-3
+  // engine. Every slot is OPTIONAL and consumed null-safely by buildTopMoves;
+  // absent slots are ignored. NONE of this touches the 0-100 score or Signal.
   const signals: Top3SignalInputs = {};
+
+  // --- regime (book-wide): map the engine's "caution" tier to "neutral". ---
   if (regime?.regime) {
-    // Map the engine's "caution" tier onto the Top3 "neutral" posture.
     const r =
       regime.regime === "risk_on"
         ? "risk_on"
@@ -267,10 +270,76 @@ export async function buildTopMovesData(): Promise<TopMovesResponse> {
     signals.regime = { regime: r, label: regime.label };
   }
 
+  // --- earnings (per-ticker): from each holding's additive earnings overlay.
+  // daysUntil -> daysToEarnings; pre-positioning window / a PEAD bias raise the
+  // pre-earnings risk read. Only emitted when a forward earnings date is known.
+  const earnings: Record<string, NonNullable<Top3SignalInputs["earnings"]>[string]> = {};
+  for (const h of portfolioUsd.holdings) {
+    const e = h.earnings;
+    if (!e || e.daysUntil == null || e.daysUntil < 0) continue;
+    const risk: "high" | "medium" | "low" =
+      e.inPrePositioningWindow || e.peadSignal === "drift_down"
+        ? "high"
+        : e.peadSignal === "drift_up" || (e.daysUntil != null && e.daysUntil <= 14)
+          ? "medium"
+          : "low";
+    earnings[h.ticker.toUpperCase()] = { daysToEarnings: e.daysUntil, risk };
+  }
+  if (Object.keys(earnings).length > 0) signals.earnings = earnings;
+
+  // --- insider (per-ticker): from each holding's additive insider overlay.
+  // signal -> bias; netDollar -> netValueUsd. "none" is skipped.
+  const insider: Record<string, NonNullable<Top3SignalInputs["insider"]>[string]> = {};
+  for (const h of portfolioUsd.holdings) {
+    const ins = h.insider;
+    if (!ins || ins.signal === "none") continue;
+    const bias: "buy" | "sell" | "neutral" =
+      ins.signal === "selling" ? "sell" : "buy"; // cluster_buy / notable_buy -> buy
+    insider[h.ticker.toUpperCase()] = { bias, netValueUsd: ins.netDollar };
+  }
+  if (Object.keys(insider).length > 0) signals.insider = insider;
+
+  // --- news (per-ticker): run the hard-catalyst triage over held + watchlist
+  // names and map each name's strongest catalyst to a -3..+3 impact. Fully
+  // null-safe / bounded internally; degrades to {} on any failure so the
+  // dashboard build is never blocked on slow external calls.
+  const catalystNames: CatalystName[] = [];
+  for (const h of portfolioUsd.holdings) {
+    if (h.ticker) catalystNames.push({ ticker: h.ticker, held: true });
+  }
+  for (const w of watchlist?.items ?? []) {
+    if (w.ticker) catalystNames.push({ ticker: w.ticker, held: false });
+  }
+  const catalystResult = catalystNames.length
+    ? await buildCatalysts(catalystNames, { days: 14, maxNames: 40 }).catch(
+        () => null
+      )
+    : null;
+  if (catalystResult && catalystResult.catalysts.length > 0) {
+    const news: Record<string, NonNullable<Top3SignalInputs["news"]>[string]> = {};
+    // catalysts are pre-ranked (held, materiality, date); first per ticker wins.
+    for (const c of catalystResult.catalysts) {
+      const key = c.ticker.toUpperCase();
+      if (news[key]) continue;
+      news[key] = { impact: catalystImpact(c), headline: c.headline };
+    }
+    if (Object.keys(news).length > 0) signals.news = news;
+  }
+
   return buildTopMoves({
     holdings: portfolioUsd.holdings,
     redistribution: redistributionUsd,
     watchlist: watchlist?.items ?? [],
     signals,
   });
+}
+
+// [top3][integration] Map a hard catalyst (direction x materiality) to the
+// Top3 news impact scale (-3 very negative .. +3 very positive). Neutral
+// catalysts carry no directional impact.
+function catalystImpact(c: NewsCatalyst): number {
+  const mag = c.materiality === "high" ? 3 : c.materiality === "medium" ? 2 : 1;
+  if (c.direction === "bullish") return mag;
+  if (c.direction === "bearish") return -mag;
+  return 0;
 }
