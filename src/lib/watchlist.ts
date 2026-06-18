@@ -13,6 +13,8 @@ import { extractRsi, scoreHolding } from "@/lib/scoring";
 import { sectorFor } from "@/lib/sectors";
 // [calibration][integration] additive conviction overlay on watchlist items.
 import { getCalibrationCached, convictionForSignal } from "@/lib/calibration";
+// [insider] Additive insider cluster-buy overlay (never alters bucket/score).
+import { getInsiderOverlays, type InsiderOverlay } from "@/lib/insider";
 import { getTopRanked, type WatchlistRanking } from "@/lib/watchlist-screen";
 import { universeEntryFor } from "@/lib/universe";
 import type {
@@ -318,6 +320,11 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
 
   // [calibration][integration] historical conviction overlay (null-safe).
   const wlCalibration = await getCalibrationCached().catch(() => null);
+  // [insider] Slow additive overlay over the watchlist names (open-market
+  // buys, heavily filtered). Batched once; cached 6h; null-safe.
+  const wlInsider = await getInsiderOverlays(
+    candidates.map((c) => c.ticker)
+  ).catch(() => ({}) as Record<string, InsiderOverlay>);
   // [factors] Benchmark/sector-ETF history fetched ONCE for the whole list.
   const benchmarkBundle = await loadBenchmarkBundle(
     candidates.map((c) => c.ticker)
@@ -408,6 +415,9 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
         20
       );
     }
+    // [insider] Additive overlay (open-market insider buys). Never affects
+    // bucket / ranking / engine score.
+    it.insider = wlInsider[it.ticker.toUpperCase()];
   });
   // Rank: best-entry first, then by upside desc.
   const order: Record<WatchlistBucket, number> = { best_entry: 0, momentum: 1, neutral: 2, overbought: 3 };

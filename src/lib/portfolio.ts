@@ -20,6 +20,8 @@ import { loadBenchmarkBundle } from "@/lib/relative-strength";
 import { computeFactorBundle, rankCrossSection, buildFactorMetrics } from "@/lib/factors";
 // [calibration] Additive conviction overlay (never alters score/signal).
 import { getCalibrationCached, convictionForSignal } from "@/lib/calibration";
+// [insider] Additive insider cluster-buy overlay (never alters score/signal).
+import { getInsiderOverlays, type InsiderOverlay } from "@/lib/insider";
 import * as finnhub from "@/lib/finnhub";
 import type {
   Announcement,
@@ -245,6 +247,13 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
   const totalPortfolioValue = totalMarketValue + cash;
 
   // 3. Build, score and enrich each holding.
+  // [insider] Additive slow overlay (open-market insider buys, heavily
+  // filtered). Batched once; cached 6h; null-safe — "none" on any miss.
+  // Does NOT touch score/signal.
+  const insiderOverlays = await getInsiderOverlays(
+    positions.map((p) => p.ticker)
+  ).catch(() => ({}) as Record<string, InsiderOverlay>);
+
   const holdings: Holding[] = base.map((b, i) => {
     const portfolioWeight =
       totalPortfolioValue > 0 ? (b.marketValue / totalPortfolioValue) * 100 : 0;
@@ -351,6 +360,8 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       conviction: degraded
         ? undefined
         : convictionForSignal(calibration, signal, score, 20),
+      // [insider] Additive overlay; withheld for degraded holdings.
+      insider: degraded ? undefined : insiderOverlays[b.position.ticker.toUpperCase()],
     };
   });
 

@@ -39,6 +39,8 @@ import { EventsRadar } from "@/components/dashboard/events-radar";
 import { PortfolioRisk } from "@/components/dashboard/portfolio-risk";
 // [sizing] concentration / position-sizing panel
 import { ConcentrationPanel } from "@/components/dashboard/concentration-panel";
+// [insider] additive insider cluster-buy overlay panel (slow signal)
+import { InsiderPanel } from "@/components/dashboard/insider-panel";
 import { RealizedPnl } from "@/components/dashboard/realized-pnl";
 import { ProvidersBadge } from "@/components/dashboard/providers-badge";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
@@ -455,6 +457,8 @@ function ReadyView({
             {/* [sizing] concentration / position-sizing widget */}
             <ConcentrationPanel />
             <EventsRadar />
+            {/* [insider] slow open-market insider cluster-buy overlay */}
+            <InsiderPanel />
           </div>
 
           <RealizedPnl />
