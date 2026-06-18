@@ -18,6 +18,17 @@ const PRICE_EPS = 0.01;
 const THROTTLE_MS = 5 * 60 * 1000;
 
 /**
+ * Cost-basis overrides (ticker → avg price). IBKR's Flex API can disagree with
+ * its own app after a corporate action — e.g. the GOOGL→GOOG share-class
+ * conversion: the Flex feed reports 366.98 while the app shows 358.66. Pin to
+ * the app value so the dashboard matches IBKR; delete an entry once IBKR
+ * reconciles its Flex feed (then the next sync tracks Flex again).
+ */
+const COST_BASIS_OVERRIDES: Record<string, number> = {
+  GOOG: 358.66,
+};
+
+/**
  * Core realign: pull the Flex statement and reconcile the ledger to it.
  * `debug` returns the parsed statement WITHOUT mutating. Shared by the
  * scheduled GET (CRON_SECRET) and the in-app POST (Sync button / auto-sync).
@@ -84,8 +95,9 @@ async function realignToIbkr(debug: boolean) {
 
   for (const s of stocks) {
     const cur = current.get(s.symbol);
+    const targetPrice = COST_BASIS_OVERRIDES[s.symbol] ?? s.avgPrice;
     const sharesMatch = cur && Math.abs(cur.shares - s.quantity) < 1e-6;
-    const priceMatch = cur && Math.abs(cur.entryPrice - s.avgPrice) < PRICE_EPS;
+    const priceMatch = cur && Math.abs(cur.entryPrice - targetPrice) < PRICE_EPS;
     if (sharesMatch && priceMatch) continue; // already in sync
     if (newerManualTickers.has(s.symbol)) {
       skippedStale.push(s.symbol);
@@ -100,10 +112,13 @@ async function realignToIbkr(debug: boolean) {
       pricePerShare: 0,
       tradeDate,
       notes: "IBKR Flex sync",
-      adjustment: { shares: s.quantity, avgPrice: s.avgPrice },
+      adjustment: { shares: s.quantity, avgPrice: targetPrice },
     });
     await appendTransaction(tx);
-    synced.push(`${s.symbol} → ${s.quantity} @ ${s.avgPrice}`);
+    synced.push(
+      `${s.symbol} → ${s.quantity} @ ${targetPrice}` +
+        (COST_BASIS_OVERRIDES[s.symbol] != null ? " (pinned)" : "")
+    );
   }
 
   // Don't archive a name you just bought by hand the statement hasn't caught up to.
