@@ -171,6 +171,37 @@ export type ConvictionOverlay = {
   basis: "signal" | "band" | "none";
 };
 
+// ---------------------------------------------------------------------------
+// [earnings] Earnings catalyst signal (ADDITIVE)
+// ---------------------------------------------------------------------------
+//
+// Optional, display-only earnings overlay attached to Holding / WatchlistItem
+// by portfolio.ts / watchlist.ts. NEVER affects the base score or Signal.
+// Structurally identical to the runtime `EarningsSignal` type in
+// @/lib/earnings-signals (kept here so shared types stay free of the
+// server-only import). null-safe: every field is optional; absence means the
+// corresponding sub-signal was unavailable.
+export type RevisionTrend = "up" | "flat" | "down";
+export type PeadSignal = "drift_up" | "drift_down" | "none";
+
+export type EarningsSignal = {
+  /** Next confirmed earnings date, YYYY-MM-DD. */
+  nextDate?: string;
+  /** Whole calendar days until nextDate. */
+  daysUntil?: number;
+  /** True when nextDate is within ~5 trading days (~7 calendar days). */
+  inPrePositioningWindow?: boolean;
+  /** Most recent reported quarter date, YYYY-MM-DD. */
+  lastReportDate?: string;
+  /** Surprise % on the last reported quarter (actual vs estimate). */
+  lastSurprisePct?: number;
+  /** Are forward EPS/revenue estimates being revised up / flat / down? */
+  revisionTrend?: RevisionTrend;
+  /** Post-earnings-drift bias derived from the last surprise + recency. */
+  peadSignal?: PeadSignal;
+};
+// [earnings] end
+
 export type Holding = {
   ticker: string;
   companyName: string;
@@ -194,6 +225,8 @@ export type Holding = {
   factors?: FactorScores;
   // [calibration] Optional conviction overlay (additive; null-safe).
   conviction?: ConvictionOverlay;
+  // [earnings] Optional additive earnings catalyst overlay (null-safe).
+  earnings?: EarningsSignal;
 };
 
 // ---------------------------------------------------------------------------
@@ -577,6 +610,8 @@ export type WatchlistItem = {
   factors?: FactorScores;
   // [calibration] Optional conviction overlay (additive; null-safe).
   conviction?: ConvictionOverlay;
+  // [earnings] Optional additive earnings catalyst overlay (null-safe).
+  earnings?: EarningsSignal;
 };
 
 export type WatchlistResponse = {
