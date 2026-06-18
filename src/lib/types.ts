@@ -218,6 +218,27 @@ export type EarningsSignal = {
   peadSignal?: PeadSignal;
 };
 // [earnings] end
+// [insider] Insider cluster-buy overlay (ADDITIVE)
+// ---------------------------------------------------------------------------
+//
+// A SLOW fundamental overlay derived from filtered open-market insider buys
+// (10b5-1 / automatic sells, option exercises and grants are excluded). It is
+// purely additive: it NEVER feeds the existing 0-100 score or BUY/HOLD/SELL
+// Signal. Attached optionally to Holding / WatchlistItem by portfolio.ts /
+// watchlist.ts. Mirrors the runtime `InsiderOverlay` in @/lib/insider (kept
+// structurally identical so shared types stay free of the server-only import).
+// null-safe: always optional; absence means "insider data not computed".
+export type InsiderSignal = "cluster_buy" | "notable_buy" | "selling" | "none";
+
+export type InsiderOverlay = {
+  signal: InsiderSignal;
+  /** Distinct open-market buyers inside the cluster window. */
+  buyerCount: number;
+  /** Net open-market dollar flow over the lookback: + = buying, - = selling. */
+  netDollar: number;
+  /** ISO date (YYYY-MM-DD) of the most recent qualifying transaction, or null. */
+  lastDate: string | null;
+};
 
 export type Holding = {
   ticker: string;
@@ -249,6 +270,8 @@ export type Holding = {
   conviction?: ConvictionOverlay;
   // [earnings] Optional additive earnings catalyst overlay (null-safe).
   earnings?: EarningsSignal;
+  // [insider] Optional insider cluster-buy overlay (additive; null-safe).
+  insider?: InsiderOverlay;
 };
 
 // ---------------------------------------------------------------------------
@@ -634,6 +657,8 @@ export type WatchlistItem = {
   conviction?: ConvictionOverlay;
   // [earnings] Optional additive earnings catalyst overlay (null-safe).
   earnings?: EarningsSignal;
+  // [insider] Optional insider cluster-buy overlay (additive; null-safe).
+  insider?: InsiderOverlay;
 };
 
 export type WatchlistResponse = {

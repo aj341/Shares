@@ -43,6 +43,8 @@ import { EarningsCalendar } from "@/components/dashboard/earnings-calendar";
 import { PortfolioRisk } from "@/components/dashboard/portfolio-risk";
 // [sizing] concentration / position-sizing panel
 import { ConcentrationPanel } from "@/components/dashboard/concentration-panel";
+// [insider] additive insider cluster-buy overlay panel (slow signal)
+import { InsiderPanel } from "@/components/dashboard/insider-panel";
 import { RealizedPnl } from "@/components/dashboard/realized-pnl";
 import { ProvidersBadge } from "@/components/dashboard/providers-badge";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
@@ -499,6 +501,8 @@ function ReadyView({
             <EventsRadar />
             {/* [earnings] earnings calendar / revisions / PEAD panel */}
             <EarningsCalendar />
+            {/* [insider] slow open-market insider cluster-buy overlay */}
+            <InsiderPanel />
           </div>
 
           <RealizedPnl />
