@@ -32,6 +32,8 @@ import { StocksTab } from "@/components/dashboard/stocks-tab";
 import { WatchlistTab } from "@/components/dashboard/watchlist-tab";
 import { ArticleAnalyzer } from "@/components/dashboard/article-analyzer";
 import { AlertsBanner } from "@/components/dashboard/alerts-banner";
+// [regime] additive market-regime / breadth context banner
+import { RegimeBanner } from "@/components/dashboard/regime-banner";
 import { SignalPerformance } from "@/components/dashboard/signal-performance";
 // [calibration] Additive conviction-calibration panel.
 import { ConvictionCalibration } from "@/components/dashboard/conviction-calibration";
@@ -355,6 +357,8 @@ function ReadyView({
 
   return (
     <div className="space-y-6">
+      {/* [regime] market-regime / breadth context (additive, non-blocking) */}
+      <RegimeBanner />
       <AlertsBanner alerts={alerts} />
       <KpiCards portfolio={portfolio} pnlByPeriod={perf.data?.pnlByPeriod ?? null} />
 
