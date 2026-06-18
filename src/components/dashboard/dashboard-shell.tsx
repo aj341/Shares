@@ -35,6 +35,8 @@ import { AlertsBanner } from "@/components/dashboard/alerts-banner";
 import { SignalPerformance } from "@/components/dashboard/signal-performance";
 import { EventsRadar } from "@/components/dashboard/events-radar";
 import { PortfolioRisk } from "@/components/dashboard/portfolio-risk";
+// [sizing] concentration / position-sizing panel
+import { ConcentrationPanel } from "@/components/dashboard/concentration-panel";
 import { RealizedPnl } from "@/components/dashboard/realized-pnl";
 import { ProvidersBadge } from "@/components/dashboard/providers-badge";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
@@ -448,6 +450,8 @@ function ReadyView({
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <PortfolioRisk />
+            {/* [sizing] concentration / position-sizing widget */}
+            <ConcentrationPanel />
             <EventsRadar />
           </div>
 

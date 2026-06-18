@@ -6,6 +6,10 @@
  * Do not redefine these shapes elsewhere — import from here.
  */
 
+// [sizing] Concentration assessment shape (type-only import; erased at runtime,
+// so no module cycle). Defined in src/lib/concentration.ts.
+import type { ConcentrationAssessment } from "@/lib/concentration";
+
 // ---------------------------------------------------------------------------
 // Core domain
 // ---------------------------------------------------------------------------
@@ -167,6 +171,9 @@ export type RedistributionSummary = {
    * when no candidate cleared the BUY bar.
    */
   candidatesConsidered?: Array<{ ticker: string; score: number | null }>;
+  // [sizing] Concentration assessment of the BEFORE book + active limits.
+  // Additive/optional — present only when the engine ran with concentration on.
+  concentration?: ConcentrationAssessment;
 };
 
 // ---------------------------------------------------------------------------

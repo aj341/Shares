@@ -1,5 +1,11 @@
-import { PORTFOLIO_RULES } from "@/lib/constants";
+import { PORTFOLIO_RULES, CONCENTRATION_LIMITS } from "@/lib/constants";
 import { minAnnouncementImpact } from "@/lib/announcements";
+// [sizing] concentration-aware sizing: limits which buys are allowed and
+// surfaces trim-for-concentration recommendations. Backwards compatible —
+// behaviour only changes when a concentration limit is actually breached.
+import { assessConcentration } from "@/lib/concentration";
+import { sectorFor } from "@/lib/sectors";
+import type { ConcentrationLimits } from "@/lib/concentration";
 import type {
   AllocationSnapshot,
   Holding,
@@ -19,7 +25,10 @@ import type {
 
 const { maxPositionWeight, targetCashBufferPct, minTradeSize } = PORTFOLIO_RULES;
 
-type Decision = "FULL_SELL" | "TRIM" | "BUY" | "HOLD";
+// [sizing] TRIM_CONCENTRATION is a distinct decision from the existing weak-score
+// TRIM — it fires when a name (or its sector) is already over a concentration
+// limit, with its own rationale string. Treated like a TRIM for execution.
+type Decision = "FULL_SELL" | "TRIM" | "TRIM_CONCENTRATION" | "BUY" | "HOLD";
 
 type Working = {
   holding: Holding;
@@ -29,7 +38,22 @@ type Working = {
   realisedPnl: number;
 };
 
-function decide(h: Holding): Decision {
+/**
+ * [sizing] Concentration context passed into `decide`. When a holding's own
+ * equity weight is over the single-name cap, or its sector is over the sector
+ * cap, we surface a TRIM_CONCENTRATION (distinct from the weak-score TRIM).
+ * Null context => no concentration influence (full backwards compatibility).
+ */
+type ConcCtx = {
+  limits: ConcentrationLimits;
+  /** This holding's weight as a fraction of EQUITY (excl cash). */
+  equityFrac: number;
+  /** Combined weight of this holding's sector as a fraction of EQUITY. */
+  sectorFrac: number;
+  sector: string;
+} | null;
+
+function decide(h: Holding, conc: ConcCtx = null): Decision {
   // SAFETY: never recommend trades off degraded (mock-fallback) data.
   if (h.dataQuality === "degraded") return "HOLD";
 
@@ -38,6 +62,20 @@ function decide(h: Holding): Decision {
   // 1. Full sell — broken thesis.
   if (h.score < 40 && (h.verdict.verdict === "negative" || negAnnouncement)) {
     return "FULL_SELL";
+  }
+
+  // [sizing] 1b. Trim for concentration — a name (or its sector) is already
+  // over a hard concentration limit. Distinct from the weak-score TRIM below;
+  // only fires when a concentration limit is actually breached, so the legacy
+  // flow is untouched when limits are respected. We do NOT force-trim a name we
+  // would otherwise FULL_SELL (handled above) or a strong BUY whose only issue
+  // is size — for those we BLOCK the buy in phase 3 instead of force-selling.
+  if (
+    conc &&
+    (conc.equityFrac > conc.limits.maxSingleNameWeight + 1e-9 ||
+      conc.sectorFrac > conc.limits.maxSectorWeight + 1e-9)
+  ) {
+    return "TRIM_CONCENTRATION";
   }
 
   // 2. Trim — weak score, or overbought + large gain + overweight.
@@ -101,9 +139,46 @@ export function buildRedistribution(
     regimeLabel?: string;
     /** Watchlist screen candidates (caller omits these in risk-off regimes). */
     newPositionCandidates?: NewPositionCandidate[];
+    // [sizing] Concentration limits (fractions of equity). Defaults to
+    // CONCENTRATION_LIMITS. Set `respectConcentration: false` to fully restore
+    // the legacy behaviour (no concentration influence at all).
+    concentrationLimits?: ConcentrationLimits;
+    /** Master switch — when false the engine ignores concentration entirely. */
+    respectConcentration?: boolean;
   } = {}
 ): RedistributionResponse {
   const { holdings, cash, totalPortfolioValue } = portfolio;
+
+  // [sizing] Concentration setup. Computed once from the BEFORE book; used to
+  // (a) emit trim-for-concentration decisions and (b) gate buys in phase 3.
+  // When `respectConcentration` is false we pass null contexts everywhere, so
+  // every downstream branch behaves exactly as before.
+  const concentrationOn = opts.respectConcentration !== false;
+  const concLimits: ConcentrationLimits =
+    opts.concentrationLimits ?? CONCENTRATION_LIMITS;
+  const equityValueBefore = holdings.reduce((acc, h) => acc + h.marketValue, 0);
+  const concentration = assessConcentration(holdings, concLimits, equityValueBefore);
+  // Per-sector equity fraction map for the BEFORE book.
+  const sectorFracBefore = new Map<string, number>();
+  if (equityValueBefore > 0) {
+    for (const h of holdings) {
+      const sec = sectorFor(h.ticker);
+      sectorFracBefore.set(
+        sec,
+        (sectorFracBefore.get(sec) ?? 0) + h.marketValue / equityValueBefore
+      );
+    }
+  }
+  const concCtxFor = (h: Holding): ConcCtx => {
+    if (!concentrationOn || equityValueBefore <= 0) return null;
+    const sec = sectorFor(h.ticker);
+    return {
+      limits: concLimits,
+      equityFrac: h.marketValue / equityValueBefore,
+      sectorFrac: sectorFracBefore.get(sec) ?? 0,
+      sector: sec,
+    };
+  };
   // Regime-aware dynamic buffer (defaults to the static rule).
   const bufferPct = opts.targetCashBufferPct ?? targetCashBufferPct;
   const asOf = new Date().toISOString();
@@ -114,7 +189,7 @@ export function buildRedistribution(
 
   // --- Phase 1: decide sells / trims, collect proceeds. ---
   const working: Working[] = holdings.map((h) => {
-    const decision = decide(h);
+    const decision = decide(h, concCtxFor(h));
     let sharesAfter = h.shares;
     let proceeds = 0;
     let realisedPnl = 0;
@@ -123,7 +198,9 @@ export function buildRedistribution(
       sharesAfter = 0;
       proceeds = h.shares * h.currentPrice;
       realisedPnl = proceeds - h.costBasis;
-    } else if (decision === "TRIM") {
+    } else if (decision === "TRIM" || decision === "TRIM_CONCENTRATION") {
+      // [sizing] TRIM_CONCENTRATION shares the same execution path as TRIM
+      // (~30% of the position, whole shares, min-trade-size gated).
       const ts = trimShares(h);
       sharesAfter = h.shares - ts;
       proceeds = ts * h.currentPrice;
@@ -141,9 +218,31 @@ export function buildRedistribution(
   let totalProceeds = 0;
 
   for (const w of working) {
-    if (w.decision === "FULL_SELL" || (w.decision === "TRIM" && w.proceeds > 0)) {
+    const isTrim =
+      (w.decision === "TRIM" || w.decision === "TRIM_CONCENTRATION") &&
+      w.proceeds > 0;
+    if (w.decision === "FULL_SELL" || isTrim) {
       const soldShares = w.holding.shares - w.sharesAfter;
       totalProceeds += w.proceeds;
+      // [sizing] Concentration-specific rationale explains WHY (which limit).
+      let concRationale = "";
+      if (w.decision === "TRIM_CONCENTRATION") {
+        const ctx = concCtxFor(w.holding);
+        const overSingle =
+          ctx != null && ctx.equityFrac > concLimits.maxSingleNameWeight + 1e-9;
+        const overSector =
+          ctx != null && ctx.sectorFrac > concLimits.maxSectorWeight + 1e-9;
+        const reasons: string[] = [];
+        if (overSingle && ctx)
+          reasons.push(
+            `at ${(ctx.equityFrac * 100).toFixed(1)}% of equity vs the ${(concLimits.maxSingleNameWeight * 100).toFixed(0)}% single-name cap`
+          );
+        if (overSector && ctx)
+          reasons.push(
+            `its sector (${ctx.sector}) at ${(ctx.sectorFrac * 100).toFixed(1)}% vs the ${(concLimits.maxSectorWeight * 100).toFixed(0)}% sector cap`
+          );
+        concRationale = `Trim ${soldShares} shares for concentration — ${w.holding.ticker} is ${reasons.join(" and ")}. Reduces portfolio concentration risk.`;
+      }
       recommendations.push({
         action: w.decision === "FULL_SELL" ? "SELL" : "TRIM",
         ticker: w.holding.ticker,
@@ -154,11 +253,13 @@ export function buildRedistribution(
         rationale:
           w.decision === "FULL_SELL"
             ? `Score ${w.holding.score} (SELL) with ${w.holding.verdict.verdict} verdict — exit full position.`
-            : `Trim ${soldShares} shares — ${
-                w.holding.score < 55
-                  ? `weak score ${w.holding.score}`
-                  : "overbought with a large gain near the position cap"
-              }.`,
+            : w.decision === "TRIM_CONCENTRATION"
+              ? concRationale
+              : `Trim ${soldShares} shares — ${
+                  w.holding.score < 55
+                    ? `weak score ${w.holding.score}`
+                    : "overbought with a large gain near the position cap"
+                }.`,
       });
     }
   }
@@ -247,6 +348,38 @@ export function buildRedistribution(
   const capFor = (ticker: string) =>
     budgetFor.get(ticker) ?? Number.POSITIVE_INFINITY;
 
+  // [sizing] Concentration-aware buy gating. We track the running equity total
+  // (sum of post-trade equity MVs) and the running sector MV so each prospective
+  // buy can be capped so it never PUSHES the book past a concentration limit.
+  // When concentration is off, headroom is unbounded and behaviour is unchanged.
+  const sectorMvAfter = new Map<string, number>();
+  for (const w of working) {
+    const sec = sectorFor(w.holding.ticker);
+    const mv = mvAfter.get(w.holding.ticker) ?? 0;
+    sectorMvAfter.set(sec, (sectorMvAfter.get(sec) ?? 0) + mv);
+  }
+  const equityTotal = () =>
+    Array.from(mvAfter.values()).reduce((acc, v) => acc + v, 0);
+  // Max additional $ into a name so (m+x)/(E+x) <= L  =>  x <= (L*E - m)/(1-L).
+  const concDollarHeadroom = (currentMv: number, sumMv: number, limit: number): number => {
+    if (!concentrationOn) return Number.POSITIVE_INFINITY;
+    if (limit >= 1) return Number.POSITIVE_INFINITY;
+    const E = equityTotal();
+    const x = (limit * E - sumMv) / (1 - limit);
+    return Math.max(0, x);
+  };
+  // Top-3 guard: returns true if adding $cost to `ticker` keeps top-3 <= limit.
+  const top3WouldHold = (ticker: string, cost: number): boolean => {
+    if (!concentrationOn) return true;
+    const proj = new Map(mvAfter);
+    proj.set(ticker, (proj.get(ticker) ?? 0) + cost);
+    const vals = Array.from(proj.values()).sort((a, b) => b - a);
+    const E = vals.reduce((acc, v) => acc + v, 0);
+    if (E <= 0) return true;
+    const top3 = vals.slice(0, 3).reduce((acc, v) => acc + v, 0);
+    return top3 / E <= concLimits.maxTop3 + 1e-9;
+  };
+
   let totalInvested = 0;
   const newPositions: { ticker: string; companyName: string; mv: number }[] = [];
   for (const entry of queue) {
@@ -254,12 +387,33 @@ export function buildRedistribution(
 
     if (entry.kind === "existing") {
       const h = entry.holding;
+      const sec = sectorFor(h.ticker);
       const currentMv = mvAfter.get(h.ticker) ?? 0;
       const headroomToCap = Math.max(0, cap - currentMv);
-      const spendable = Math.min(availableToInvest, capFor(h.ticker));
+      // [sizing] Additional concentration ceilings: single-name + sector. These
+      // only BIND when concentration is on AND the relevant limit would be hit;
+      // otherwise they are +Infinity and the legacy 35% `cap` governs.
+      const singleHeadroom$ = concDollarHeadroom(
+        currentMv,
+        currentMv,
+        concLimits.maxSingleNameWeight
+      );
+      const sectorHeadroom$ = concDollarHeadroom(
+        currentMv,
+        sectorMvAfter.get(sec) ?? 0,
+        concLimits.maxSectorWeight
+      );
+      const spendable = Math.min(
+        availableToInvest,
+        capFor(h.ticker),
+        singleHeadroom$,
+        sectorHeadroom$
+      );
       const maxByCash = Math.floor(spendable / h.currentPrice);
       const maxByCap = Math.floor(headroomToCap / h.currentPrice);
-      const buy = Math.max(0, Math.min(maxByCash, maxByCap));
+      let buy = Math.max(0, Math.min(maxByCash, maxByCap));
+      // Top-3 guard: shrink the buy until it no longer pushes top-3 over limit.
+      while (buy > 0 && !top3WouldHold(h.ticker, buy * h.currentPrice)) buy -= 1;
 
       if (buy <= 0) continue;
       const cost = buy * h.currentPrice;
@@ -268,24 +422,44 @@ export function buildRedistribution(
       availableToInvest -= cost;
       totalInvested += cost;
       mvAfter.set(h.ticker, currentMv + cost);
+      sectorMvAfter.set(sec, (sectorMvAfter.get(sec) ?? 0) + cost);
 
+      // [sizing] If concentration clamped the buy below the legacy cap headroom,
+      // say so in the rationale (transparency about WHY the buy was limited).
+      const concClamped =
+        concentrationOn &&
+        Math.min(singleHeadroom$, sectorHeadroom$) < headroomToCap - 1e-6;
       recommendations.push({
         action: "BUY",
         ticker: h.ticker,
         shares: buy,
         estimatedPrice: round2(h.currentPrice),
         estimatedProceedsOrCost: round2(cost),
-        rationale: `Score ${h.score} (${h.signal}); below 30% cap — deploy capital up to cap.`,
+        rationale: concClamped
+          ? `Score ${h.score} (${h.signal}); buy sized DOWN to respect concentration limits (single-name ${(concLimits.maxSingleNameWeight * 100).toFixed(0)}%, top-3 ${(concLimits.maxTop3 * 100).toFixed(0)}%, sector ${(concLimits.maxSectorWeight * 100).toFixed(0)}%).`
+          : `Score ${h.score} (${h.signal}); below 30% cap — deploy capital up to cap.`,
       });
     } else {
       if (newPositions.length >= MAX_NEW_POSITIONS) continue;
       const cand = entry.cand;
+      const sec = sectorFor(cand.ticker);
+      // [sizing] A brand-new position starts at 0, so single-name headroom is
+      // governed by NEW_POSITION_MAX_WEIGHT below; we still respect the SECTOR
+      // ceiling so a new name can't push an already-hot sector over its cap.
+      const sectorHeadroom$ = concDollarHeadroom(
+        0,
+        sectorMvAfter.get(sec) ?? 0,
+        concLimits.maxSectorWeight
+      );
       const budget = Math.min(
         availableToInvest,
         capFor(cand.ticker),
-        totalPortfolioValue * NEW_POSITION_MAX_WEIGHT
+        totalPortfolioValue * NEW_POSITION_MAX_WEIGHT,
+        sectorHeadroom$
       );
-      const shares = Math.floor(budget / cand.priceUsd);
+      let shares = Math.floor(budget / cand.priceUsd);
+      while (shares > 0 && !top3WouldHold(cand.ticker, shares * cand.priceUsd))
+        shares -= 1;
       if (shares <= 0) continue;
       const cost = shares * cand.priceUsd;
       if (cost < minTradeSize) continue;
@@ -293,6 +467,7 @@ export function buildRedistribution(
       availableToInvest -= cost;
       totalInvested += cost;
       mvAfter.set(cand.ticker, cost);
+      sectorMvAfter.set(sec, (sectorMvAfter.get(sec) ?? 0) + cost);
       newPositions.push({ ticker: cand.ticker, companyName: cand.companyName, mv: cost });
 
       recommendations.push({
@@ -354,6 +529,9 @@ export function buildRedistribution(
       ticker: c.ticker,
       score: c.score,
     })),
+    // [sizing] Concentration snapshot of the BEFORE book + the active limits,
+    // so the UI can explain any trim-for-concentration / sized-down buys.
+    concentration: concentrationOn ? concentration : undefined,
   };
 
   // Order: sells, then trims, then buys.
