@@ -144,6 +144,23 @@ export type StockVerdict = {
  */
 export type DataQuality = "live" | "degraded" | "mock";
 
+// [exthours] Current US market session + a real pre/post-market print. Both are
+// ADDITIVE and OPTIONAL on Holding; they never affect score/signal. When the
+// regular session is closed and a valid extended print exists, portfolio.ts
+// surfaces it as currentPrice/dayChangePct and records the provenance here so
+// the UI can show a session badge. Mirrors @/lib/market-session's MarketSession
+// (kept structural here so shared types stay free of the server-only import).
+export type MarketSessionLabel = "pre" | "regular" | "post" | "closed";
+
+export type ExtendedHoursInfo = {
+  /** Extended-hours last price (USD), > 0. */
+  price: number;
+  /** Extended-hours % change vs the regular-session close (null when underivable). */
+  changePct: number | null;
+  /** Which extended session this print came from. */
+  session: "pre" | "post";
+};
+
 // ---------------------------------------------------------------------------
 // [calibration] Conviction overlay (ADDITIVE)
 // ---------------------------------------------------------------------------
@@ -178,6 +195,11 @@ export type Holding = {
   entryPrice: number;
   currentPrice: number;
   dayChangePct: number;
+  // [exthours] Current US market session (when known) + the extended-hours print
+  // that's driving currentPrice/dayChangePct (present only when an extended print
+  // is being surfaced because the regular market is closed). Additive/null-safe.
+  session?: MarketSessionLabel;
+  extendedHours?: ExtendedHoursInfo;
   dataQuality: DataQuality;
   costBasis: number;
   marketValue: number;

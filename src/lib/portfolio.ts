@@ -15,6 +15,11 @@ import { computeLiveMetrics } from "@/lib/live-metrics";
 import { buildLiveVerdict } from "@/lib/verdict";
 import { enhanceVerdict, getCachedEnhancedVerdict } from "@/lib/verdict-llm";
 import { getStockHistory, isMboumConfigured } from "@/lib/mboum";
+// [exthours] Extended-hours pricing: surface a live pre/post-market print when
+// the regular market is closed, instead of leaving the dashboard on the prior
+// close. Additive + null-safe; the regular-hours Finnhub path is untouched.
+import { getMarketSession } from "@/lib/market-session";
+import { getExtendedHoursQuote } from "@/lib/extended-quote";
 // [factors] additive cross-sectional dimension
 import { loadBenchmarkBundle } from "@/lib/relative-strength";
 import { computeFactorBundle, rankCrossSection, buildFactorMetrics } from "@/lib/factors";
@@ -44,13 +49,48 @@ type Quote = {
   dayChangePct: number;
   /** True when the price came from a real feed (Finnhub, or Mboum last close). */
   real: boolean;
+  // [exthours] Set when a live extended-hours print is surfaced (regular market
+  // closed). currentPrice/dayChangePct above already reflect it; these carry the
+  // provenance through to the Holding for the UI badge. Absent during regular
+  // hours and whenever no valid extended print exists.
+  session?: "pre" | "regular" | "post" | "closed";
+  extendedHours?: { price: number; changePct: number | null; session: "pre" | "post" };
 };
 
-async function getQuoteFor(ticker: string, source: DataSource): Promise<Quote> {
+async function getQuoteFor(
+  ticker: string,
+  source: DataSource,
+  // [exthours] Current US market session, computed once per build. Only used to
+  // decide whether to OVERRIDE the regular-hours price with an extended print.
+  clockSession: ReturnType<typeof getMarketSession> = getMarketSession()
+): Promise<Quote> {
   if (source === "finnhub") {
+    // [exthours] Regular session CLOSED: try a real pre/post-market print first.
+    // If found, it becomes the live price (with a session label + extended
+    // day-change). If not, we fall straight through to the existing behavior
+    // (Finnhub quote / Mboum last close) - so nothing is ever fabricated.
+    if (clockSession !== "regular") {
+      const ext = await getExtendedHoursQuote(ticker, clockSession).catch(() => null);
+      if (ext) {
+        return {
+          currentPrice: ext.price,
+          dayChangePct: ext.changePct ?? 0,
+          real: true,
+          session: ext.session,
+          extendedHours: {
+            price: ext.price,
+            changePct: ext.changePct,
+            session: ext.session,
+          },
+        };
+      }
+    }
     const q = await finnhub.getQuote(ticker);
     if (q && q.c > 0) {
-      return { currentPrice: q.c, dayChangePct: q.dp ?? 0, real: true };
+      // [exthours] Regular Finnhub quote is UNCHANGED; we only annotate the
+      // session so the UI can label pre/post/closed states where no live
+      // extended print was available (no extendedHours attached here).
+      return { currentPrice: q.c, dayChangePct: q.dp ?? 0, real: true, session: clockSession };
     }
     // Finnhub failed: prefer a REAL (slightly stale) Mboum close over mock.
     if (isMboumConfigured()) {
@@ -64,6 +104,8 @@ async function getQuoteFor(ticker: string, source: DataSource): Promise<Quote> {
           currentPrice: last.close,
           dayChangePct: prev ? ((last.close - prev.close) / prev.close) * 100 : 0,
           real: true,
+          // [exthours] Stale-but-real close: annotate session for the UI badge.
+          session: clockSession,
         };
       }
     }
@@ -118,6 +160,9 @@ function withLivePositionSizeMetric(metrics: Metric[], weight: number): Metric[]
 export async function buildPortfolio(): Promise<PortfolioResponse> {
   const source = resolveDataSource();
   const asOf = new Date().toISOString();
+  // [exthours] Resolve the US market session ONCE for this build so every
+  // holding uses a consistent session and we don't recompute per ticker.
+  const clockSession = getMarketSession();
 
   // 0. Active positions from the ledger; cash from the real broker balances.
   //    Engine works in USD (US equities are USD-priced); we convert to AUD for
@@ -163,7 +208,7 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
 
   // 1. Quotes + live news (display), fetched in parallel per ticker.
   const [quotes, liveAnnouncements] = await Promise.all([
-    Promise.all(positions.map((p) => getQuoteFor(p.ticker, source))),
+    Promise.all(positions.map((p) => getQuoteFor(p.ticker, source, clockSession))),
     Promise.all(
       positions.map((p) =>
         source === "finnhub"
@@ -231,6 +276,9 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       position: p,
       currentPrice,
       dayChangePct,
+      // [exthours] Pass-through session + extended-hours provenance (if any).
+      session: quotes[i].session,
+      extendedHours: quotes[i].extendedHours,
       costBasis,
       marketValue,
       unrealisedPnl,
@@ -331,6 +379,10 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       entryPrice: b.position.entryPrice,
       currentPrice: b.currentPrice,
       dayChangePct: b.dayChangePct,
+      // [exthours] Additive: surface the session + the extended-hours print that
+      // is driving currentPrice/dayChangePct (when the regular market is closed).
+      session: b.session,
+      extendedHours: b.extendedHours,
       dataQuality,
       costBasis: round2(b.costBasis),
       marketValue: round2(b.marketValue),

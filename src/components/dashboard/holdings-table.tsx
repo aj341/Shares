@@ -95,7 +95,23 @@ export function HoldingsTable({
               {formatNumber(h.shares, 0)}
             </TableCell>
             <TableCell className="text-right font-mono-nums">
-              {formatUsd(h.currentPrice)}
+              <div className="flex items-center justify-end gap-1.5">
+                {/* [exthours] Live pre/post-market price indicator. Shown only
+                    when an extended-hours print is currently driving the price
+                    (regular market closed); regular hours render unchanged. */}
+                {h.extendedHours ? (
+                  <Badge
+                    variant="positive"
+                    className="px-1 py-0 text-[9px] leading-tight"
+                    title={`Live ${
+                      h.extendedHours.session === "pre" ? "pre-market" : "after-hours"
+                    } price (regular market closed)`}
+                  >
+                    {h.extendedHours.session === "pre" ? "PRE" : "POST"}
+                  </Badge>
+                ) : null}
+                <span>{formatUsd(h.currentPrice)}</span>
+              </div>
             </TableCell>
             <TableCell
               className={cn(
