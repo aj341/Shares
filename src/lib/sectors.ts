@@ -59,6 +59,41 @@ export function sectorFor(ticker: string): string {
   return SECTOR_BY_TICKER[ticker] ?? "Other";
 }
 
+// ---------------------------------------------------------------------------
+// [integration] Single source of truth for sector -> representative ETF.
+// Consolidates the factors feature's ticker->ETF map onto the existing
+// thematic SECTOR_BY_TICKER so there is ONE ticker->sector classification.
+// Each thematic sector maps to the same benchmark ETF the factors feature used
+// per-ticker (verified 1:1). QQQ is the fallback for unmapped sectors.
+// ---------------------------------------------------------------------------
+export const ETF_BY_SECTOR: Record<string, string> = {
+  "Cloud / AI": "XLK",
+  "Consumer Tech": "XLK",
+  "Ad Tech / AI": "XLC",
+  "Gaming / Metaverse": "XLC",
+  "AI / Social": "XLC",
+  "Internet / Media": "XLC",
+  "AI Infrastructure": "SMH",
+  Semiconductors: "SMH",
+  Software: "IGV",
+  "Cloud Database": "IGV",
+  "AI / Defense": "IGV",
+  "Cloud Security": "IGV",
+  "Cloud / E-commerce": "XLY",
+  "Internet / Travel": "XLY",
+  "Internet / E-commerce": "XLY",
+  "Consumer / Retail": "XLP",
+  "Defense / SaaS": "XLI",
+};
+
+/** Representative sector ETF for a ticker (via its thematic sector); null when
+ *  unmapped (callers fall back to the QQQ benchmark). Single source of truth. */
+export function sectorEtfForTicker(ticker: string): string | null {
+  const sector = SECTOR_BY_TICKER[ticker];
+  if (!sector) return null;
+  return ETF_BY_SECTOR[sector] ?? null;
+}
+
 export type SectorSlice = {
   sector: string;
   weight: number; // % of total book incl. cash

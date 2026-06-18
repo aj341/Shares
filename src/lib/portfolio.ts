@@ -430,6 +430,16 @@ export function toAudRedistribution(
       totalProceeds: round2(d.summary.totalProceeds * r),
       totalInvested: round2(d.summary.totalInvested * r),
       newCashBalance: round2(d.summary.newCashBalance * r),
+      // [sizing][integration] concentration weights/grades are FX-invariant;
+      // only the $-per-name budget is a money amount and must convert to AUD.
+      concentration: d.summary.concentration
+        ? {
+            ...d.summary.concentration,
+            maxDollarsPerName: round2(
+              d.summary.concentration.maxDollarsPerName * r
+            ),
+          }
+        : d.summary.concentration,
     },
   };
 }

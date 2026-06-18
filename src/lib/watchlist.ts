@@ -11,6 +11,8 @@ import {
 } from "@/lib/factors";
 import { extractRsi, scoreHolding } from "@/lib/scoring";
 import { sectorFor } from "@/lib/sectors";
+// [calibration][integration] additive conviction overlay on watchlist items.
+import { getCalibrationCached, convictionForSignal } from "@/lib/calibration";
 import { getTopRanked, type WatchlistRanking } from "@/lib/watchlist-screen";
 import { universeEntryFor } from "@/lib/universe";
 import type {
@@ -314,6 +316,8 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
 
   const candidates = await resolveCandidates();
 
+  // [calibration][integration] historical conviction overlay (null-safe).
+  const wlCalibration = await getCalibrationCached().catch(() => null);
   // [factors] Benchmark/sector-ETF history fetched ONCE for the whole list.
   const benchmarkBundle = await loadBenchmarkBundle(
     candidates.map((c) => c.ticker)
@@ -393,6 +397,17 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
   items.forEach((it, i) => {
     it.relativeStrength = wlRanked[i].relativeStrength;
     it.factors = wlRanked[i].factors;
+    // [calibration][integration] Additive conviction from the SAME engine
+    // score/signal the watchlist already computes. Withheld when the item has
+    // no engine signal. Never affects bucket / ranking / score.
+    if (it.engineSignal != null && it.engineScore != null) {
+      it.conviction = convictionForSignal(
+        wlCalibration,
+        it.engineSignal,
+        it.engineScore,
+        20
+      );
+    }
   });
   // Rank: best-entry first, then by upside desc.
   const order: Record<WatchlistBucket, number> = { best_entry: 0, momentum: 1, neutral: 2, overbought: 3 };

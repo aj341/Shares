@@ -1,5 +1,6 @@
 import "server-only";
 import { getStockHistory, isMboumConfigured } from "@/lib/mboum";
+import { sectorEtfForTicker } from "@/lib/sectors";
 
 /**
  * [factors] Relative-strength + return primitives.
@@ -20,58 +21,13 @@ export const DAYS_6M = 126;
 export const DAYS_12M = 252;
 export const DAYS_1M = 21;
 
-/** Static sector -> representative ETF map (additive; QQQ is the fallback). */
-export const SECTOR_ETF_BY_TICKER: Record<string, string> = {
-  // User's tickers
-  GOOG: "XLC", // Communication Services (ad tech)
-  GOOGL: "XLC",
-  NBIS: "SMH", // AI infrastructure -> semis proxy
-  LRCX: "SMH", // Semiconductors
-  MSFT: "XLK", // Technology
-  MDB: "IGV", // Software
-  PLTR: "IGV", // Software
-  RBLX: "XLC", // Interactive media / gaming
-  // Common large-cap tech / semis
-  NVDA: "SMH",
-  AVGO: "SMH",
-  AMD: "SMH",
-  MU: "SMH",
-  INTC: "SMH",
-  AMAT: "SMH",
-  KLAC: "SMH",
-  MRVL: "SMH",
-  TXN: "SMH",
-  ADI: "SMH",
-  ASML: "SMH",
-  NXPI: "SMH",
-  QCOM: "SMH",
-  ARM: "SMH",
-  AAPL: "XLK",
-  ADBE: "IGV",
-  INTU: "IGV",
-  WDAY: "IGV",
-  SNPS: "IGV",
-  CDNS: "IGV",
-  DDOG: "IGV",
-  TEAM: "IGV",
-  CRWD: "IGV",
-  PANW: "IGV",
-  FTNT: "IGV",
-  ZS: "IGV",
-  META: "XLC",
-  NFLX: "XLC",
-  AMZN: "XLY", // Consumer discretionary
-  BKNG: "XLY",
-  ABNB: "XLY",
-  MELI: "XLY",
-  PDD: "XLY",
-  COST: "XLP", // Consumer staples
-  AXON: "XLI", // Industrials / defense-adjacent
-};
+// [integration] Sector -> ETF lookup now lives in the single source of truth
+// (src/lib/sectors.ts). We re-export a thin wrapper so the rest of factors.ts
+// keeps using `sectorEtfFor` unchanged. QQQ remains the fallback when null.
 
 /** The sector ETF for a ticker, or null when unknown (caller falls back to QQQ). */
 export function sectorEtfFor(ticker: string): string | null {
-  return SECTOR_ETF_BY_TICKER[ticker] ?? null;
+  return sectorEtfForTicker(ticker);
 }
 
 /** The benchmark every name is measured against. */
