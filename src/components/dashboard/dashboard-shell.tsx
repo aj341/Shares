@@ -20,6 +20,8 @@ import { KpiCards } from "@/components/dashboard/kpi-cards";
 import { HoldingsTable } from "@/components/dashboard/holdings-table";
 import { CashBalances } from "@/components/dashboard/cash-balances";
 import { DailyBriefCard } from "@/components/dashboard/daily-brief";
+// [top3] AI "Top 3 Moves Today" panel.
+import { TopMovesCard } from "@/components/dashboard/top-moves";
 import { AssistantChat } from "@/components/dashboard/assistant-chat";
 import { StockDetailSheet } from "@/components/dashboard/stock-detail-sheet";
 import { AllocationChart } from "@/components/dashboard/allocation-chart";
@@ -394,6 +396,8 @@ function ReadyView({
 
         <TabsContent value="overview" className="space-y-4">
           <DailyBriefCard />
+          {/* [top3] AI "Top 3 Moves Today" — additive overview panel. */}
+          <TopMovesCard onSelect={onSelect} />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <PerformanceChart data={perf.data} loading={perf.loading} />

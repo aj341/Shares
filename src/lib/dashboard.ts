@@ -10,6 +10,8 @@ import {
 } from "@/lib/redistribution";
 import { getMarketRegime } from "@/lib/regime";
 import { buildWatchlist } from "@/lib/watchlist";
+// [top3] AI "Top 3 Moves Today" — additive policy engine over existing signals.
+import { buildTopMoves, type Top3SignalInputs, type TopMovesResponse } from "@/lib/top-moves";
 import { sectorFor } from "@/lib/sectors";
 import { isDatabaseConfigured, query } from "@/lib/db";
 import { buildDisagreementRow } from "@/lib/announcements";
@@ -220,4 +222,55 @@ export async function buildDashboard(): Promise<DashboardResponse> {
     fxUsdToAud: portfolio.fxUsdToAud,
     fxLive: portfolio.fxLive,
   };
+}
+
+
+// ---------------------------------------------------------------------------
+// [top3] AI "Top 3 Moves Today" — assembles the SAME portfolio + redistribution
+// + watchlist the dashboard uses, then runs the deterministic Top-3 policy
+// engine over them. ADDITIVE: reuses existing builders, mutates nothing.
+//
+// INTEGRATOR NOTE: sibling earnings/regime/news/insider signals are wired in
+// here by populating the `signals` object below and passing it to buildTopMoves
+// (see the Top3SignalInputs interface in src/lib/top-moves.ts). The market
+// regime is already available locally, so it is mapped in as the first slot.
+// ---------------------------------------------------------------------------
+export async function buildTopMovesData(): Promise<TopMovesResponse> {
+  const [portfolioUsd, regime, watchlist] = await Promise.all([
+    buildPortfolio(),
+    getMarketRegime().catch(() => null),
+    buildWatchlist().catch(() => null),
+  ]);
+
+  const candidates = await buildNewPositionCandidates(
+    regime?.regime === "risk_off",
+    portfolioUsd
+  );
+  const redistributionUsd = buildRedistribution(portfolioUsd, {
+    targetCashBufferPct: regime?.targetCashBufferPct,
+    regimeLabel: regime?.label,
+    newPositionCandidates: candidates,
+  });
+
+  // [top3] Optional sibling signals. Only `regime` is currently shipped; the
+  // earnings/news/insider slots stay undefined until those features land. See
+  // the wiring instructions in src/lib/top-moves.ts.
+  const signals: Top3SignalInputs = {};
+  if (regime?.regime) {
+    // Map the engine's "caution" tier onto the Top3 "neutral" posture.
+    const r =
+      regime.regime === "risk_on"
+        ? "risk_on"
+        : regime.regime === "risk_off"
+          ? "risk_off"
+          : "neutral";
+    signals.regime = { regime: r, label: regime.label };
+  }
+
+  return buildTopMoves({
+    holdings: portfolioUsd.holdings,
+    redistribution: redistributionUsd,
+    watchlist: watchlist?.items ?? [],
+    signals,
+  });
 }
