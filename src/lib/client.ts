@@ -140,3 +140,18 @@ export function postCashAdjustment(payload: {
 export function analyzeArticle(url: string, ticker?: string): Promise<ArticleImpactAnalysis> {
   return postJson<ArticleImpactAnalysis>("/api/article-impact/analyze", { url, ticker });
 }
+
+export type SyncResult = {
+  ok: boolean;
+  skipped?: string;
+  synced?: string[];
+  cashPersisted?: boolean;
+  whenGenerated?: string | null;
+  reason?: string;
+};
+
+/** Trigger an on-demand IBKR realign (server-throttled). Powers the Sync button. */
+export async function syncIbkr(): Promise<SyncResult> {
+  const res = await fetch("/api/portfolio/sync-ibkr", { method: "POST" });
+  return (await res.json()) as SyncResult;
+}

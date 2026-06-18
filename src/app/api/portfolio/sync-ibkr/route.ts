@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchFlexStatement, isIbkrConfigured } from "@/lib/ibkr";
-import { saveBrokerCash } from "@/lib/broker-cash";
+import { readBrokerCash, saveBrokerCash } from "@/lib/broker-cash";
 import {
   appendTransaction,
   readPortfolio,
@@ -14,12 +14,153 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const PRICE_EPS = 0.01;
+/** Skip a fresh Flex round-trip if the broker book synced within this window. */
+const THROTTLE_MS = 5 * 60 * 1000;
 
 /**
- * Sync the ledger to IBKR via the Flex Web Service. Reconciles share counts +
- * avg cost per stock (ADJUSTMENT entries) and archives positions IBKR no longer
- * reports. Guarded by CRON_SECRET. `?debug=1` returns the parsed statement
- * WITHOUT mutating, so we can verify the query's fields.
+ * Core realign: pull the Flex statement and reconcile the ledger to it.
+ * `debug` returns the parsed statement WITHOUT mutating. Shared by the
+ * scheduled GET (CRON_SECRET) and the in-app POST (Sync button / auto-sync).
+ */
+async function realignToIbkr(debug: boolean) {
+  const statement = await fetchFlexStatement();
+
+  if (debug) {
+    return { ok: true, debug: true, ...statement };
+  }
+
+  // Stock positions only.
+  const stocks = statement.positions.filter(
+    (p) => p.assetCategory === "STK" || p.assetCategory === ""
+  );
+  if (stocks.length === 0) {
+    return {
+      ok: true,
+      reason: "no stock positions in Flex statement — skipped (nothing archived)",
+      cash: statement.cash,
+    };
+  }
+
+  const persisted = await readPortfolio();
+  const before = derive(persisted);
+  const current = new Map(before.positions.map((p) => [p.ticker, p]));
+  const ibkrSymbols = new Set(stocks.map((s) => s.symbol));
+
+  // A position IBKR reports again must be UN-archived (else derive() hides it).
+  const unarchived: string[] = [];
+  for (const sym of ibkrSymbols) {
+    if (persisted.archivedTickers.includes(sym)) {
+      await setArchived(sym, false);
+      unarchived.push(sym);
+    }
+  }
+
+  // STALENESS GUARD: a manual entry dated AFTER the statement means the
+  // statement is the stale party — skip that ticker rather than reverting it.
+  const stmtDate = statement.whenGenerated
+    ? `${statement.whenGenerated.slice(0, 4)}-${statement.whenGenerated.slice(4, 6)}-${statement.whenGenerated.slice(6, 8)}`
+    : null;
+  const newerManualTickers = new Set<string>();
+  if (stmtDate) {
+    for (const tx of persisted.transactions) {
+      if (tx.tradeDate > stmtDate && !tx.notes?.includes("IBKR Flex sync")) {
+        newerManualTickers.add(tx.ticker);
+      }
+    }
+  }
+
+  // Cash moves with trades — when ANY manual entry outdates the statement,
+  // keep the manual estimate until IBKR publishes a fresh statement.
+  const cashPersisted = newerManualTickers.size === 0;
+  if (cashPersisted) {
+    await saveBrokerCash(
+      statement.cash.map((c) => ({ currency: c.currency, amount: c.endingCash }))
+    ).catch(() => {});
+  }
+
+  const synced: string[] = [];
+  const skippedStale: string[] = [];
+  const tradeDate = new Date().toISOString().slice(0, 10);
+
+  for (const s of stocks) {
+    const cur = current.get(s.symbol);
+    const sharesMatch = cur && Math.abs(cur.shares - s.quantity) < 1e-6;
+    const priceMatch = cur && Math.abs(cur.entryPrice - s.avgPrice) < PRICE_EPS;
+    if (sharesMatch && priceMatch) continue; // already in sync
+    if (newerManualTickers.has(s.symbol)) {
+      skippedStale.push(s.symbol);
+      continue; // ledger knows about trades newer than this statement
+    }
+
+    const tx = buildTransaction({
+      ticker: s.symbol,
+      companyName: cur?.companyName ?? s.description ?? s.symbol,
+      tradeType: "ADJUSTMENT",
+      shares: 0,
+      pricePerShare: 0,
+      tradeDate,
+      notes: "IBKR Flex sync",
+      adjustment: { shares: s.quantity, avgPrice: s.avgPrice },
+    });
+    await appendTransaction(tx);
+    synced.push(`${s.symbol} → ${s.quantity} @ ${s.avgPrice}`);
+  }
+
+  // Don't archive a name you just bought by hand the statement hasn't caught up to.
+  const recentManualBuys = new Set<string>();
+  if (stmtDate) {
+    for (const tx of persisted.transactions) {
+      if (
+        tx.tradeType === "BUY" &&
+        tx.tradeDate >= stmtDate &&
+        !tx.notes?.includes("IBKR Flex sync")
+      ) {
+        recentManualBuys.add(tx.ticker);
+      }
+    }
+  }
+
+  // Archive holdings IBKR no longer reports (sold out elsewhere).
+  const archived: string[] = [];
+  for (const p of before.positions) {
+    if (
+      !ibkrSymbols.has(p.ticker) &&
+      !newerManualTickers.has(p.ticker) &&
+      !recentManualBuys.has(p.ticker)
+    ) {
+      await setArchived(p.ticker, true);
+      archived.push(p.ticker);
+    }
+  }
+
+  return {
+    ok: true,
+    synced,
+    skippedStale,
+    unarchived,
+    cashPersisted,
+    archived,
+    cash: statement.cash,
+    trades: statement.trades.length,
+    performance: statement.performance.length,
+    whenGenerated: statement.whenGenerated,
+  };
+}
+
+function failResponse(err: unknown) {
+  const e = err as Error;
+  const detail =
+    e?.message ||
+    e?.stack?.split("\n").slice(0, 3).join(" | ") ||
+    (typeof err === "string" ? err : JSON.stringify(err)) ||
+    `${e?.name ?? typeof err} (no message)`;
+  const body: ApiError = { error: "IBKR sync failed", detail };
+  return NextResponse.json(body, { status: 500 });
+}
+
+/**
+ * Scheduled realign (GitHub Actions). Guarded by CRON_SECRET. `?debug=1`
+ * returns the parsed statement WITHOUT mutating, to verify the query fields.
  */
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -40,150 +181,32 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const statement = await fetchFlexStatement();
-
-    if (req.nextUrl.searchParams.get("debug") === "1") {
-      return NextResponse.json({ ok: true, debug: true, ...statement });
-    }
-
-    // Stock positions only.
-    const stocks = statement.positions.filter(
-      (p) => p.assetCategory === "STK" || p.assetCategory === ""
-    );
-    if (stocks.length === 0) {
-      return NextResponse.json({
-        ok: true,
-        reason: "no stock positions in Flex statement — skipped (nothing archived)",
-        cash: statement.cash,
-      });
-    }
-
-    const persisted = await readPortfolio();
-    const before = derive(persisted);
-    const current = new Map(before.positions.map((p) => [p.ticker, p]));
-    const ibkrSymbols = new Set(stocks.map((s) => s.symbol));
-
-    // A position IBKR reports again must be UN-archived. Otherwise a name that
-    // got archived while temporarily absent from a lagging statement stays
-    // hidden forever even after it returns — derive() filters archived tickers,
-    // so the holding never reappears (cash moves, position invisible).
-    const unarchived: string[] = [];
-    for (const sym of ibkrSymbols) {
-      if (persisted.archivedTickers.includes(sym)) {
-        await setArchived(sym, false);
-        unarchived.push(sym);
-      }
-    }
-
-    // STALENESS GUARD: the Flex statement reflects IBKR's last overnight
-    // cycle. If our ledger has a MANUAL entry for a ticker dated AFTER the
-    // statement was generated (same-day trade entered by hand), the statement
-    // is the stale party — skip that ticker rather than reverting the human.
-    // whenGenerated format: "yyyyMMdd;HHmmss" (statement-period end day).
-    const stmtDate = statement.whenGenerated
-      ? `${statement.whenGenerated.slice(0, 4)}-${statement.whenGenerated.slice(4, 6)}-${statement.whenGenerated.slice(6, 8)}`
-      : null;
-    const newerManualTickers = new Set<string>();
-    if (stmtDate) {
-      for (const tx of persisted.transactions) {
-        if (tx.tradeDate > stmtDate && !tx.notes?.includes("IBKR Flex sync")) {
-          newerManualTickers.add(tx.ticker);
-        }
-      }
-    }
-
-    // Cash moves with trades — when ANY manual entry outdates the statement,
-    // the statement cash is stale too; keep the manual estimate until IBKR
-    // publishes a fresh statement.
-    const cashPersisted = newerManualTickers.size === 0;
-    if (cashPersisted) {
-      await saveBrokerCash(
-        statement.cash.map((c) => ({ currency: c.currency, amount: c.endingCash }))
-      ).catch(() => {});
-    }
-
-    const synced: string[] = [];
-    const skippedStale: string[] = [];
-    const tradeDate = new Date().toISOString().slice(0, 10);
-
-    for (const s of stocks) {
-      const cur = current.get(s.symbol);
-      const sharesMatch = cur && Math.abs(cur.shares - s.quantity) < 1e-6;
-      const priceMatch = cur && Math.abs(cur.entryPrice - s.avgPrice) < PRICE_EPS;
-      if (sharesMatch && priceMatch) continue; // already in sync
-      if (newerManualTickers.has(s.symbol)) {
-        skippedStale.push(s.symbol);
-        continue; // ledger knows about trades newer than this statement
-      }
-
-      const tx = buildTransaction({
-        ticker: s.symbol,
-        companyName: cur?.companyName ?? s.description ?? s.symbol,
-        tradeType: "ADJUSTMENT",
-        shares: 0,
-        pricePerShare: 0,
-        tradeDate,
-        notes: "IBKR Flex sync",
-        adjustment: { shares: s.quantity, avgPrice: s.avgPrice },
-      });
-      await appendTransaction(tx);
-      synced.push(`${s.symbol} → ${s.quantity} @ ${s.avgPrice}`);
-    }
-
-    // Don't archive a name you just bought by hand but the broker statement
-    // hasn't caught up to yet (BUY dated on/after the statement). Protects a
-    // freshly-added position from vanishing on the next realign.
-    const recentManualBuys = new Set<string>();
-    if (stmtDate) {
-      for (const tx of persisted.transactions) {
-        if (
-          tx.tradeType === "BUY" &&
-          tx.tradeDate >= stmtDate &&
-          !tx.notes?.includes("IBKR Flex sync")
-        ) {
-          recentManualBuys.add(tx.ticker);
-        }
-      }
-    }
-
-    // Archive holdings IBKR no longer reports (sold out elsewhere).
-    const archived: string[] = [];
-    for (const p of before.positions) {
-      if (
-        !ibkrSymbols.has(p.ticker) &&
-        !newerManualTickers.has(p.ticker) &&
-        !recentManualBuys.has(p.ticker)
-      ) {
-        await setArchived(p.ticker, true);
-        archived.push(p.ticker);
-      }
-    }
-
-    return NextResponse.json({
-      ok: true,
-      synced,
-      skippedStale,
-      unarchived,
-      cashPersisted,
-      archived,
-      cash: statement.cash,
-      trades: statement.trades.length,
-      performance: statement.performance.length,
-      whenGenerated: statement.whenGenerated,
-    });
+    const debug = req.nextUrl.searchParams.get("debug") === "1";
+    return NextResponse.json(await realignToIbkr(debug));
   } catch (err) {
-    const e = err as Error;
-    // Surface enough to diagnose: empty .message (e.g. a thrown non-Error or a
-    // bare Error) otherwise hides the cause entirely.
-    const detail =
-      e?.message ||
-      e?.stack?.split("\n").slice(0, 3).join(" | ") ||
-      (typeof err === "string" ? err : JSON.stringify(err)) ||
-      `${e?.name ?? typeof err} (no message)`;
-    const body: ApiError = {
-      error: "IBKR sync failed",
-      detail,
-    };
-    return NextResponse.json(body, { status: 500 });
+    return failResponse(err);
+  }
+}
+
+/**
+ * In-app realign — powers the "Sync IBKR" button and the auto-sync on load.
+ * No secret (same-origin user action); throttled so repeated page loads don't
+ * hammer the Flex service.
+ */
+export async function POST() {
+  if (!isIbkrConfigured()) {
+    return NextResponse.json({ ok: false, reason: "IBKR Flex token not configured." });
+  }
+  try {
+    const bc = await readBrokerCash().catch(() => null);
+    if (bc?.syncedAt) {
+      const ageMs = Date.now() - new Date(bc.syncedAt).getTime();
+      if (ageMs >= 0 && ageMs < THROTTLE_MS) {
+        return NextResponse.json({ ok: true, skipped: "fresh", syncedAt: bc.syncedAt });
+      }
+    }
+    return NextResponse.json(await realignToIbkr(false));
+  } catch (err) {
+    return failResponse(err);
   }
 }

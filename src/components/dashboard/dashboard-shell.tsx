@@ -52,6 +52,7 @@ import {
   fetchResearch,
   fetchStocks,
   fetchWatchlist,
+  syncIbkr,
 } from "@/lib/client";
 import { computeInsights } from "@/lib/insights";
 import type {
@@ -182,6 +183,29 @@ export function DashboardShell() {
     void loadAlerts();
   }, [load, loadPerf, loadStocks, loadWatch, loadAlerts]);
 
+  // Self-healing IBKR freshness: a manual "Sync IBKR" action plus an automatic
+  // realign on first load when the broker book is stale (server throttles to
+  // avoid hammering Flex). Removes reliance on the best-effort GitHub cron.
+  const [syncing, setSyncing] = React.useState(false);
+  const syncNow = React.useCallback(async () => {
+    setSyncing(true);
+    try {
+      await syncIbkr();
+    } catch {
+      /* ignore — view still shows the last-known book */
+    } finally {
+      setSyncing(false);
+      refreshAll();
+    }
+  }, [refreshAll]);
+
+  const didAutoSync = React.useRef(false);
+  React.useEffect(() => {
+    if (didAutoSync.current) return;
+    didAutoSync.current = true;
+    void syncNow();
+  }, [syncNow]);
+
   const selectedHolding =
     (state.status === "ready"
       ? state.data.portfolio.holdings.find((h) => h.ticker === selected)
@@ -194,6 +218,8 @@ export function DashboardShell() {
         source={state.status === "ready" ? state.data.source : undefined}
         asOf={state.status === "ready" ? state.data.asOf : undefined}
         onRefresh={refreshAll}
+        onSync={() => void syncNow()}
+        syncing={syncing}
         loading={state.status === "loading"}
       />
 
@@ -236,11 +262,15 @@ function Header({
   source,
   asOf,
   onRefresh,
+  onSync,
+  syncing,
   loading,
 }: {
   source?: string;
   asOf?: string;
   onRefresh: () => void;
+  onSync: () => void;
+  syncing: boolean;
   loading: boolean;
 }) {
   const freshness = asOf
@@ -270,6 +300,17 @@ function Header({
               {freshness ? ` · ${freshness}` : ""}
             </Badge>
           ) : null}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onSync}
+            disabled={syncing}
+            aria-label="Sync IBKR"
+            title="Pull the latest positions & cash from IBKR now"
+          >
+            <RefreshCw className={syncing ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+            <span className="ml-1 hidden text-xs sm:inline">{syncing ? "Syncing…" : "Sync IBKR"}</span>
+          </Button>
           <Button
             variant="outline"
             size="icon"
