@@ -248,5 +248,7 @@ export function buildFactorMetrics(
     });
   }
 
-  return rows;
+  // [factors] flag every row as additive (display-only) so the scoring engine
+  // and any metric-status consumers exclude them from the 0-100 score / Signal.
+  return rows.map((r) => ({ ...r, additive: true as const }));
 }

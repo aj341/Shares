@@ -49,8 +49,10 @@ async function gatherContext(ticker: string): Promise<Ctx> {
     lines.push(
       `Story-vs-financials (ours): ${verdict.factAlignment.financialsSupportStory} — ${verdict.factAlignment.notes}`
     );
-    const neg = holding.metrics.filter((m) => m.status === "negative").map((m) => m.name);
-    const pos = holding.metrics.filter((m) => m.status === "positive").map((m) => m.name);
+    // [factors] exclude additive display-only rows from the metric summary.
+    const scoringMetrics = holding.metrics.filter((m) => !m.additive);
+    const neg = scoringMetrics.filter((m) => m.status === "negative").map((m) => m.name);
+    const pos = scoringMetrics.filter((m) => m.status === "positive").map((m) => m.name);
     lines.push(`Positive metrics: ${pos.slice(0, 5).join(", ") || "none"}.`);
     lines.push(`Negative metrics: ${neg.slice(0, 5).join(", ") || "none"}.`);
   } else {

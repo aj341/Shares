@@ -68,6 +68,10 @@ export type Metric = {
   category: MetricCategory;
   status: StatusTone;
   description: string;
+  // [factors] true for additive display-only rows (e.g. relative-strength /
+  // factor rows). These render in the MetricGrid but MUST be excluded from
+  // scoring/impact so the existing 0-100 score & Signal are never affected.
+  additive?: boolean;
 };
 
 export type AnnouncementType =

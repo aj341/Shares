@@ -74,9 +74,13 @@ function valuationOrFundamentalsNegativeOverall(metrics: Metric[]): boolean {
 }
 
 export function scoreHolding(
-  metrics: Metric[],
+  inputMetrics: Metric[],
   ctx: ScoreContext
 ): ScoreResult {
+  // [factors] Exclude additive display-only rows (relative-strength / factor
+  // rows) from ALL scoring math so the existing 0-100 score & Signal are
+  // unchanged regardless of whether the caller passed display metrics.
+  const metrics = inputMetrics.filter((m) => !m.additive);
   const categories = {} as Record<MetricCategory, number>;
   const weighted = {} as Record<MetricCategory, number>;
 
