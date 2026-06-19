@@ -126,20 +126,21 @@ export function computeConcentrationMetrics(
     };
   }
 
-  // Equity fractions (sum to ~1 over the invested book).
+  // [total-basis] Weights are a fraction of the TOTAL portfolio (incl cash) =
+  // portfolioWeight/100, so the cap matches the weights shown on the dashboard
+  // rather than an equity-only (cash-excluded) basis.
   const fracs = safe
-    .map((h) => ({ ticker: h.ticker, frac: h.marketValue / equityValue }))
+    .map((h) => ({ ticker: h.ticker, frac: h.portfolioWeight / 100 }))
     .sort((a, b) => b.frac - a.frac);
 
   const largest = fracs[0];
   const top3 = fracs.slice(0, 3).reduce((s, x) => s + x.frac, 0);
   const hhi = fracs.reduce((s, x) => s + x.frac * x.frac, 0);
 
-  // Sector aggregation (reuses the existing thematic sectorFor map).
   const bySector = new Map<string, number>();
   for (const h of safe) {
     const sector = sectorFor(h.ticker);
-    bySector.set(sector, (bySector.get(sector) ?? 0) + h.marketValue / equityValue);
+    bySector.set(sector, (bySector.get(sector) ?? 0) + h.portfolioWeight / 100);
   }
   let topSector: string | null = null;
   let topSectorWeight = 0;
@@ -200,9 +201,9 @@ export function assessConcentration(
   };
   single.message =
     single.status === "BREACH"
-      ? `${single.subject ?? "Top name"} is ${pct(single.value)} of equity, over the ${pct(single.limit)} single-name cap -- trim to reduce idiosyncratic risk.`
+      ? `${single.subject ?? "Top name"} is ${pct(single.value)} of portfolio, over the ${pct(single.limit)} single-name cap -- trim to reduce idiosyncratic risk.`
       : single.status === "WARN"
-        ? `${single.subject ?? "Top name"} is ${pct(single.value)} of equity, approaching the ${pct(single.limit)} cap (warn at ${pct(limits.warnSingleName)}).`
+        ? `${single.subject ?? "Top name"} is ${pct(single.value)} of portfolio, approaching the ${pct(single.limit)} cap (warn at ${pct(limits.warnSingleName)}).`
         : `Largest name ${pct(single.value)} is within the ${pct(single.limit)} cap.`;
 
   const top3: LimitAssessment = {
@@ -216,9 +217,9 @@ export function assessConcentration(
   };
   top3.message =
     top3.status === "BREACH"
-      ? `Top 3 names are ${pct(top3.value)} of equity, over the ${pct(top3.limit)} limit -- book is highly concentrated.`
+      ? `Top 3 names are ${pct(top3.value)} of portfolio, over the ${pct(top3.limit)} limit -- book is highly concentrated.`
       : top3.status === "WARN"
-        ? `Top 3 names are ${pct(top3.value)} of equity, near the ${pct(top3.limit)} limit.`
+        ? `Top 3 names are ${pct(top3.value)} of portfolio, near the ${pct(top3.limit)} limit.`
         : `Top 3 names ${pct(top3.value)} within the ${pct(top3.limit)} limit.`;
 
   const sector: LimitAssessment = {
@@ -232,9 +233,9 @@ export function assessConcentration(
   };
   sector.message =
     sector.status === "BREACH"
-      ? `${sector.subject ?? "Top sector"} is ${pct(sector.value)} of equity, over the ${pct(sector.limit)} sector cap -- diversify across themes.`
+      ? `${sector.subject ?? "Top sector"} is ${pct(sector.value)} of portfolio, over the ${pct(sector.limit)} sector cap -- diversify across themes.`
       : sector.status === "WARN"
-        ? `${sector.subject ?? "Top sector"} is ${pct(sector.value)} of equity, approaching the ${pct(sector.limit)} sector cap.`
+        ? `${sector.subject ?? "Top sector"} is ${pct(sector.value)} of portfolio, approaching the ${pct(sector.limit)} sector cap.`
         : `Top sector ${sector.subject ? `(${sector.subject}) ` : ""}${pct(sector.value)} within the ${pct(sector.limit)} cap.`;
 
   const assessments = [single, top3, sector];

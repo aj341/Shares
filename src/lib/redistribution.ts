@@ -140,27 +140,28 @@ function weakTrimShares(h: Holding, totalPortfolioValue: number): number {
  */
 function concentrationTrimShares(
   h: Holding,
-  equityValue: number,
+  totalValue: number,
   ctx: ConcCtx,
   limits: ConcentrationLimits
 ): number {
-  if (!ctx || equityValue <= 0 || h.currentPrice <= 0) return trimShares(h);
+  if (!ctx || totalValue <= 0 || h.currentPrice <= 0) return trimShares(h);
   const BUFFER = 0.005; // land ~0.5% under the cap so it doesn't instantly re-breach
-  const allowedSharesFor = (limit: number, currentValue: number): number => {
-    const L = Math.max(0.01, limit - BUFFER);
-    const sellDollars = (currentValue - L * equityValue) / (1 - L);
-    if (sellDollars <= 0) return h.shares;
-    return Math.max(0, h.shares - Math.ceil(sellDollars / h.currentPrice));
-  };
   let allowed = h.shares;
+  // Single-name: trimming moves value equity->cash, so the TOTAL is unchanged —
+  // keep shares so (shares*price)/total <= cap.
   if (ctx.equityFrac > limits.maxSingleNameWeight + 1e-9) {
-    allowed = Math.min(allowed, allowedSharesFor(limits.maxSingleNameWeight, h.marketValue));
-  }
-  if (ctx.sectorFrac > limits.maxSectorWeight + 1e-9) {
+    const L = Math.max(0.01, limits.maxSingleNameWeight - BUFFER);
     allowed = Math.min(
       allowed,
-      allowedSharesFor(limits.maxSectorWeight, ctx.sectorFrac * equityValue)
+      Math.max(0, Math.floor((L * totalValue) / h.currentPrice))
     );
+  }
+  // Sector: reduce THIS name enough that its sector <= cap of total.
+  if (ctx.sectorFrac > limits.maxSectorWeight + 1e-9) {
+    const L = Math.max(0.01, limits.maxSectorWeight - BUFFER);
+    const sellDollars = ctx.sectorFrac * totalValue - L * totalValue;
+    const sellShares = Math.ceil(Math.max(0, sellDollars) / h.currentPrice);
+    allowed = Math.min(allowed, Math.max(0, h.shares - sellShares));
   }
   const raw = h.shares - allowed;
   if (raw <= 0) return 0;
@@ -212,25 +213,26 @@ export function buildRedistribution(
   const concentrationOn = opts.respectConcentration !== false;
   const concLimits: ConcentrationLimits =
     opts.concentrationLimits ?? CONCENTRATION_LIMITS;
-  const equityValueBefore = holdings.reduce((acc, h) => acc + h.marketValue, 0);
-  const concentration = assessConcentration(holdings, concLimits, equityValueBefore);
-  // Per-sector equity fraction map for the BEFORE book.
+  // [total-basis] Concentration is measured against the TOTAL portfolio value
+  // (incl cash) so the cap matches the weights shown on the dashboard. Each
+  // holding's portfolioWeight is already a % of the total book.
+  const concentration = assessConcentration(holdings, concLimits, totalPortfolioValue);
   const sectorFracBefore = new Map<string, number>();
-  if (equityValueBefore > 0) {
+  if (totalPortfolioValue > 0) {
     for (const h of holdings) {
       const sec = sectorFor(h.ticker);
       sectorFracBefore.set(
         sec,
-        (sectorFracBefore.get(sec) ?? 0) + h.marketValue / equityValueBefore
+        (sectorFracBefore.get(sec) ?? 0) + h.portfolioWeight / 100
       );
     }
   }
   const concCtxFor = (h: Holding): ConcCtx => {
-    if (!concentrationOn || equityValueBefore <= 0) return null;
+    if (!concentrationOn || totalPortfolioValue <= 0) return null;
     const sec = sectorFor(h.ticker);
     return {
       limits: concLimits,
-      equityFrac: h.marketValue / equityValueBefore,
+      equityFrac: h.portfolioWeight / 100,
       sectorFrac: sectorFracBefore.get(sec) ?? 0,
       sector: sec,
     };
@@ -261,7 +263,7 @@ export function buildRedistribution(
       // breaches keep the gradual ~30% step.
       const ts =
         decision === "TRIM_CONCENTRATION"
-          ? concentrationTrimShares(h, equityValueBefore, concCtxFor(h), concLimits)
+          ? concentrationTrimShares(h, totalPortfolioValue, concCtxFor(h), concLimits)
           : decision === "TRIM" && h.score < 55
             ? weakTrimShares(h, totalPortfolioValue)
             : trimShares(h);
@@ -298,7 +300,7 @@ export function buildRedistribution(
         const reasons: string[] = [];
         if (overSingle && ctx)
           reasons.push(
-            `at ${(ctx.equityFrac * 100).toFixed(1)}% of equity vs the ${(concLimits.maxSingleNameWeight * 100).toFixed(0)}% single-name cap`
+            `at ${(ctx.equityFrac * 100).toFixed(1)}% of portfolio vs the ${(concLimits.maxSingleNameWeight * 100).toFixed(0)}% single-name cap`
           );
         if (overSector && ctx)
           reasons.push(
@@ -419,26 +421,23 @@ export function buildRedistribution(
     const mv = mvAfter.get(w.holding.ticker) ?? 0;
     sectorMvAfter.set(sec, (sectorMvAfter.get(sec) ?? 0) + mv);
   }
-  const equityTotal = () =>
-    Array.from(mvAfter.values()).reduce((acc, v) => acc + v, 0);
-  // Max additional $ into a name so (m+x)/(E+x) <= L  =>  x <= (L*E - m)/(1-L).
-  const concDollarHeadroom = (currentMv: number, sumMv: number, limit: number): number => {
+  // [total-basis] Buying converts cash->equity, so the TOTAL portfolio value is
+  // unchanged; a name's weight is measured against that constant total.
+  // Max additional $ into a name so (m+x)/total <= L  =>  x <= L*total - m.
+  const concDollarHeadroom = (_currentMv: number, sumMv: number, limit: number): number => {
     if (!concentrationOn) return Number.POSITIVE_INFINITY;
     if (limit >= 1) return Number.POSITIVE_INFINITY;
-    const E = equityTotal();
-    const x = (limit * E - sumMv) / (1 - limit);
-    return Math.max(0, x);
+    return Math.max(0, limit * totalPortfolioValue - sumMv);
   };
-  // Top-3 guard: returns true if adding $cost to `ticker` keeps top-3 <= limit.
+  // Top-3 guard: adding $cost keeps top-3 (of total) <= limit.
   const top3WouldHold = (ticker: string, cost: number): boolean => {
     if (!concentrationOn) return true;
+    if (totalPortfolioValue <= 0) return true;
     const proj = new Map(mvAfter);
     proj.set(ticker, (proj.get(ticker) ?? 0) + cost);
     const vals = Array.from(proj.values()).sort((a, b) => b - a);
-    const E = vals.reduce((acc, v) => acc + v, 0);
-    if (E <= 0) return true;
     const top3 = vals.slice(0, 3).reduce((acc, v) => acc + v, 0);
-    return top3 / E <= concLimits.maxTop3 + 1e-9;
+    return top3 / totalPortfolioValue <= concLimits.maxTop3 + 1e-9;
   };
 
   let totalInvested = 0;

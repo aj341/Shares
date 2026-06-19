@@ -71,7 +71,7 @@ export const PORTFOLIO_RULES = {
  * Portfolio-level concentration limits consumed by `assessConcentration`
  * (src/lib/concentration.ts) and, opt-in, by the redistribution engine.
  *
- * All values are FRACTIONS of EQUITY (the invested book, excl. cash). Every
+ * All values are FRACTIONS of the TOTAL portfolio (incl. cash) — matching the weights shown on the dashboard. Every
  * default is visible and overridable here. Note: `maxSingleNameWeight` (0.30)
  * is intentionally TIGHTER than PORTFOLIO_RULES.maxPositionWeight (0.35) — the
  * concentration module is a stricter advisory layer; the redistribution engine
