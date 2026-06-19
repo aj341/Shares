@@ -383,27 +383,10 @@ function generateCandidates(
       action = "ADD";
       reason = `Add to ${h.ticker} — score ${h.score} (${h.signal})${rsLine(f)}; below the position cap with room to deploy.`;
       why = "Strong, trusted signal with headroom under the cap.";
-    } else if (
-      (h.signal === "STRONG_BUY" || h.signal === "BUY") &&
-      stance !== "negative" &&
-      (f.rsPercentile == null || f.rsPercentile >= 50)
-    ) {
-      action = "ADD";
-      reason = `Add to ${h.ticker} — ${h.signal} signal, score ${h.score}${rsLine(f)}.`;
-      why = "Constructive signal worth pressing while it holds.";
-    } else if (h.signal === "SELL" || stance === "negative" || h.score < 45) {
-      action = "TRIM";
-      reason = `Lighten ${h.ticker} — score ${h.score} with a ${stance ?? "weak"} read.`;
-      why = "Deteriorating signal; reduce exposure.";
-    } else {
-      const weak = h.score < 55;
-      const small = (h.portfolioWeight ?? 0) < 5;
-      if (weak && small) {
-        action = "WATCH";
-        reason = `Watch ${h.ticker} — weak score ${h.score} but a small ${fmtPct(h.portfolioWeight)} position; no action yet.`;
-        why = "Too small to matter today; revisit if the score keeps sliding.";
-      }
     }
+    // [top3][align] No speculative moves: Top-3 only surfaces actions the
+    // redistribution engine actually recommends (a SELL/TRIM/BUY rec, or a
+    // concentration breach it flags), so it can never contradict the strategy.
 
     if (!action) continue;
     candidates.push({
@@ -440,18 +423,14 @@ function generateCandidates(
     let action: TopMoveAction | null = null;
     let reason = "";
     let why = "";
-    if (
-      score != null &&
-      score >= 70 &&
-      (signal === "BUY" || signal === "STRONG_BUY")
-    ) {
+    // [top3][align] Only surface a NEW buy the rebalancer actually recommends
+    // opening (a BUY rec for this ticker) — keeps Top-3 consistent with the
+    // redistribution strategy rather than inventing names off raw score.
+    const wRec = recs.get(w.ticker);
+    if (wRec?.action === "BUY") {
       action = "ADD";
-      reason = `Open ${w.ticker} — screens ${score}/100 (${signal})${rsLine(f)} on the same engine as holdings.`;
-      why = "Best-scoring new name clears the BUY bar.";
-    } else if (score != null && score >= 60) {
-      action = "WATCH";
-      reason = `Watch ${w.ticker} — screens ${score}/100; close to the BUY bar but not yet there.`;
-      why = "On the cusp; wait for confirmation before opening.";
+      reason = `Open ${w.ticker} — screens ${score ?? "?"}/100 (${signal ?? "?"})${rsLine(f)}; the rebalancer recommends opening it.`;
+      why = "Clears the screen and the rebalancer would deploy into it.";
     }
     if (!action) continue;
     candidates.push({

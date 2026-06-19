@@ -130,6 +130,44 @@ function weakTrimShares(h: Holding, totalPortfolioValue: number): number {
   return raw;
 }
 
+/**
+ * [trim-to-cap] Shares to trim an over-concentrated name DOWN to just under its
+ * binding concentration limit (single-name and/or sector) in ONE move — rather
+ * than a flat 30%-of-position slice that overshoots well below the cap. For each
+ * breached limit it solves the dollars to sell so (value − x)/(equity − x) =
+ * (limit − buffer), then keeps the most-restrictive result. Falls back to the
+ * 30% step only when context is missing.
+ */
+function concentrationTrimShares(
+  h: Holding,
+  equityValue: number,
+  ctx: ConcCtx,
+  limits: ConcentrationLimits
+): number {
+  if (!ctx || equityValue <= 0 || h.currentPrice <= 0) return trimShares(h);
+  const BUFFER = 0.005; // land ~0.5% under the cap so it doesn't instantly re-breach
+  const allowedSharesFor = (limit: number, currentValue: number): number => {
+    const L = Math.max(0.01, limit - BUFFER);
+    const sellDollars = (currentValue - L * equityValue) / (1 - L);
+    if (sellDollars <= 0) return h.shares;
+    return Math.max(0, h.shares - Math.ceil(sellDollars / h.currentPrice));
+  };
+  let allowed = h.shares;
+  if (ctx.equityFrac > limits.maxSingleNameWeight + 1e-9) {
+    allowed = Math.min(allowed, allowedSharesFor(limits.maxSingleNameWeight, h.marketValue));
+  }
+  if (ctx.sectorFrac > limits.maxSectorWeight + 1e-9) {
+    allowed = Math.min(
+      allowed,
+      allowedSharesFor(limits.maxSectorWeight, ctx.sectorFrac * equityValue)
+    );
+  }
+  const raw = h.shares - allowed;
+  if (raw <= 0) return 0;
+  if (raw * h.currentPrice < minTradeSize) return 0;
+  return raw;
+}
+
 /** A screened watchlist name proposed as a brand-new position. */
 export type NewPositionCandidate = {
   ticker: string;
@@ -222,9 +260,11 @@ export function buildRedistribution(
       // weight in one move; overbought-overweight names and concentration
       // breaches keep the gradual ~30% step.
       const ts =
-        decision === "TRIM" && h.score < 55
-          ? weakTrimShares(h, totalPortfolioValue)
-          : trimShares(h);
+        decision === "TRIM_CONCENTRATION"
+          ? concentrationTrimShares(h, equityValueBefore, concCtxFor(h), concLimits)
+          : decision === "TRIM" && h.score < 55
+            ? weakTrimShares(h, totalPortfolioValue)
+            : trimShares(h);
       sharesAfter = h.shares - ts;
       proceeds = ts * h.currentPrice;
       realisedPnl = ts * (h.currentPrice - h.entryPrice);
