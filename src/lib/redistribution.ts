@@ -1,4 +1,4 @@
-import { PORTFOLIO_RULES, CONCENTRATION_LIMITS } from "@/lib/constants";
+import { PORTFOLIO_RULES, CONCENTRATION_LIMITS, DIVERSIFICATION_DEPLOY } from "@/lib/constants"; // [divdeploy]
 import { minAnnouncementImpact } from "@/lib/announcements";
 // [sizing] concentration-aware sizing: limits which buys are allowed and
 // surfaces trim-for-concentration recommendations. Backwards compatible —
@@ -197,6 +197,11 @@ export type NewPositionCandidate = {
   minBar?: number;
   /** False when yesterday's snapshot failed confirmation (anti-churn). */
   confirmed?: boolean;
+  // [divdeploy] Set by the engine (not the caller) when this candidate qualifies
+  // ONLY via the lowered diversifier bar — i.e. it is below the strict 70 buy
+  // gate but is the best-ranked name in an under-owned sector and the book has
+  // idle cash to rotate. Drives the distinct "Diversifier" rationale string.
+  diversifierEntry?: boolean;
 };
 
 const MAX_NEW_POSITIONS = 2;
@@ -381,6 +386,34 @@ export function buildRedistribution(
   const targetCash = totalPortfolioValue * bufferPct;
   let availableToInvest = Math.max(0, cash - targetCash) + totalProceeds;
 
+  // [divdeploy] Diversification-aware deployment context. The diversifier path
+  // (lowered score bar for under-owned sectors) only activates when BOTH (a)
+  // there is meaningful idle cash to rotate and (b) the book is actually
+  // concentrated / under-diversified. Otherwise every branch below behaves
+  // exactly as before. Fully gated behind DIVERSIFICATION_DEPLOY.enabled.
+  const divCfg = DIVERSIFICATION_DEPLOY;
+  // Sectors already represented in the BEFORE book (post-trade tickers still
+  // count as owned). Used to detect FRESH (under-owned) sectors for candidates.
+  const ownedSectors = new Set<string>();
+  for (const w of working) {
+    // A name still owned after this run's sells/trims keeps its sector "owned".
+    if (w.sharesAfter > 0) ownedSectors.add(sectorFor(w.holding.ticker));
+  }
+  const idleCashFrac =
+    totalPortfolioValue > 0 ? availableToInvest / totalPortfolioValue : 0;
+  const largestSingleNameFrac = concentration?.metrics.largestSingleNameWeight ?? 0;
+  const topSectorFrac = concentration?.metrics.topSectorWeight ?? 0;
+  const bookIsConcentrated =
+    largestSingleNameFrac >= divCfg.concentratedSingleNamePct ||
+    topSectorFrac >= divCfg.concentratedTopSectorPct;
+  // The diversifier path is live only when enabled, concentration is on, there
+  // is meaningful idle cash AND the book is concentrated.
+  const diversifierPathOn =
+    divCfg.enabled &&
+    concentrationOn &&
+    idleCashFrac >= divCfg.minIdleCashPct &&
+    bookIsConcentrated;
+
   // --- Phase 3: rank BUY candidates and allocate. ---
   const cap = effectiveSingleNameCap * totalPortfolioValue; // [decfix] reconciled cap (0.30 when concentration on)
 
@@ -412,23 +445,88 @@ export function buildRedistribution(
     | { kind: "existing"; holding: Holding; score: number }
     | { kind: "new"; cand: NewPositionCandidate; score: number };
 
+  // [divdeploy] A candidate's sector is FRESH when the book does not already own
+  // it. Fresh sectors earn a ranking bonus (ordering only) and are the only ones
+  // eligible for the lowered diversifier bar.
+  const isFreshSector = (ticker: string) => !ownedSectors.has(sectorFor(ticker));
+
+  // Partition the supplied candidates into NORMAL qualifiers (clear the strict
+  // per-candidate bar, default 70) and DIVERSIFIER qualifiers (below that bar
+  // but >= diversifierMinBar, in an under-owned sector) — the latter only when
+  // the diversifier path is live. A name that already clears the normal bar is
+  // never double-counted as a diversifier. [divdeploy]
+  const rawCands = (opts.newPositionCandidates ?? []).filter(
+    (c) =>
+      c.score != null &&
+      c.confirmed !== false &&
+      c.priceUsd > 0 &&
+      !mvAfter.has(c.ticker)
+  );
+  const normalCands = rawCands.filter((c) => (c.score as number) >= (c.minBar ?? 70));
+  const diversifierCands = diversifierPathOn
+    ? rawCands
+        .filter(
+          (c) =>
+            (c.score as number) < (c.minBar ?? 70) && // not already a normal buy
+            (c.score as number) >= divCfg.diversifierMinBar &&
+            isFreshSector(c.ticker) // only rotate into UNDER-OWNED sectors
+        )
+        // Best-ranked fresh names first; cap how many we surface this way.
+        .sort((a, b) => (b.score as number) - (a.score as number))
+        .slice(0, divCfg.maxDiversifiers)
+        .map((c) => ({ ...c, diversifierEntry: true })) // flag for rationale
+    : [];
+
+  const newEntryCands = [...normalCands, ...diversifierCands];
+
+  // [divdeploy] Deployment-ordering score: the qualifying engine score plus a
+  // fresh-sector bonus, so a diversifying name is preferred over one rebuilding
+  // existing exposure. This never changes the qualifying bar or the engine score
+  // — it only orders WHO gets funded first.
+  const orderScore = (
+    e:
+      | { kind: "existing"; holding: Holding }
+      | { kind: "new"; cand: NewPositionCandidate; score: number }
+  ): number => {
+    if (e.kind === "existing") {
+      // [divdeploy] Cap re-concentration: when the diversifier path is live,
+      // an existing holding that is ALREADY a large share of the book is
+      // deprioritised as a top-up target (penalty in ordering points), so freed
+      // cash flows to diversifiers first. Concentration limits still bind the
+      // actual buy size below — this only affects FUNDING ORDER. No penalty when
+      // the path is off, so legacy ordering is unchanged.
+      const frac =
+        totalPortfolioValue > 0
+          ? (mvAfter.get(e.holding.ticker) ?? 0) / totalPortfolioValue
+          : 0;
+      const penalty =
+        diversifierPathOn && frac >= divCfg.largeHoldingPct
+          ? divCfg.freshSectorBonus + 1 // outrank a fresh diversifier of equal score
+          : 0;
+      return e.holding.score - penalty;
+    }
+    const bonus = isFreshSector(e.cand.ticker) ? divCfg.freshSectorBonus : 0;
+    return e.score + bonus;
+  };
+
   const queue: BuyEntry[] = [
     ...buyCandidates.map((h) => ({
       kind: "existing" as const,
       holding: h,
       score: h.score,
     })),
-    ...(opts.newPositionCandidates ?? [])
-      .filter(
-        (c) =>
-          c.score != null &&
-          c.score >= (c.minBar ?? 70) &&
-          c.confirmed !== false &&
-          c.priceUsd > 0 &&
-          !mvAfter.has(c.ticker)
-      )
-      .map((c) => ({ kind: "new" as const, cand: c, score: c.score as number })),
+    ...newEntryCands.map((c) => ({
+      kind: "new" as const,
+      cand: c,
+      score: c.score as number,
+    })),
   ].sort((a, b) => {
+    // [divdeploy] Rank by ordering score (engine score + fresh-sector bonus),
+    // falling back to raw score, then incumbent-wins-ties (legacy behaviour when
+    // no bonus applies — bonus is 0 for existing holdings and owned-sector names).
+    const oa = orderScore(a);
+    const ob = orderScore(b);
+    if (ob !== oa) return ob - oa;
     if (b.score !== a.score) return b.score - a.score;
     if (a.kind !== b.kind) return a.kind === "existing" ? -1 : 1; // incumbent wins ties
     return 0;
@@ -580,13 +678,18 @@ export function buildRedistribution(
       sectorMvAfter.set(sec, (sectorMvAfter.get(sec) ?? 0) + cost);
       newPositions.push({ ticker: cand.ticker, companyName: cand.companyName, mv: cost });
 
+      // [divdeploy] Distinct rationale for a diversifier entry (qualified via the
+      // lowered bar in an under-owned sector) vs a normal new position.
+      const divRationale = `Diversifier — top ${sec} name; deploys idle cash away from concentrated tech. Scores ${entry.score}/100 on the same 20-metric engine (surfaced at the diversifier bar of ${divCfg.diversifierMinBar} because ${sec} is under-owned in the book). ${cand.rationale}`;
       recommendations.push({
         action: "BUY",
         ticker: cand.ticker,
         shares,
         estimatedPrice: round2(cand.priceUsd),
         estimatedProceedsOrCost: round2(cost),
-        rationale: `New position — scores ${entry.score}/100 on the same 20-metric engine, beating remaining top-up options. ${cand.rationale}`,
+        rationale: cand.diversifierEntry
+          ? divRationale // [divdeploy]
+          : `New position — scores ${entry.score}/100 on the same 20-metric engine, beating remaining top-up options. ${cand.rationale}`,
       });
     }
   }
