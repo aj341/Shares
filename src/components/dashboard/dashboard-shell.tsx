@@ -47,6 +47,8 @@ import { PortfolioRisk } from "@/components/dashboard/portfolio-risk";
 import { ConcentrationPanel } from "@/components/dashboard/concentration-panel";
 // [insider] additive insider cluster-buy overlay panel (slow signal)
 import { InsiderPanel } from "@/components/dashboard/insider-panel";
+// [intraday] additive intraday VWAP/ATR/micro-regime panel (daily-trader overlay)
+import { IntradayPanel } from "@/components/dashboard/intraday-panel";
 import { RealizedPnl } from "@/components/dashboard/realized-pnl";
 import { ProvidersBadge } from "@/components/dashboard/providers-badge";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
@@ -509,6 +511,8 @@ function ReadyView({
             <EarningsCalendar />
             {/* [insider] slow open-market insider cluster-buy overlay */}
             <InsiderPanel />
+            {/* [intraday] intraday VWAP/ATR/micro-regime (daily-trader overlay) */}
+            <IntradayPanel />
           </div>
 
           <RealizedPnl />

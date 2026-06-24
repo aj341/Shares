@@ -29,6 +29,8 @@ import { getCalibrationCached, convictionForSignal } from "@/lib/calibration";
 import { getEarningsSignals } from "@/lib/earnings-signals";
 // [insider] Additive insider cluster-buy overlay (never alters score/signal).
 import { getInsiderOverlays, type InsiderOverlay } from "@/lib/insider";
+// [intraday] Additive intraday VWAP/ATR/micro-regime overlay (never alters score/signal).
+import { getIntradayOverlays, type IntradayOverlay } from "@/lib/intraday";
 import * as finnhub from "@/lib/finnhub";
 import type {
   Announcement,
@@ -315,6 +317,14 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
     positions.map((p) => p.ticker)
   ).catch(() => ({}) as Record<string, InsiderOverlay>);
 
+  // [intraday] Additive intraday overlay (anchored VWAP / ATR bands / micro-
+  // regime) from cached Mboum intraday bars. Batched once; null-safe — every
+  // field is null when the market is closed or bars are unavailable. NEVER
+  // touches score/signal.
+  const intradayOverlays = await getIntradayOverlays(
+    positions.map((p) => p.ticker)
+  ).catch(() => ({}) as Record<string, IntradayOverlay>);
+
   const holdings: Holding[] = base.map((b, i) => {
     const portfolioWeight =
       totalPortfolioValue > 0 ? (b.marketValue / totalPortfolioValue) * 100 : 0;
@@ -430,6 +440,8 @@ export async function buildPortfolio(): Promise<PortfolioResponse> {
       // [earnings] end
       // [insider] Additive overlay; withheld for degraded holdings.
       insider: degraded ? undefined : insiderOverlays[b.position.ticker.toUpperCase()],
+      // [intraday] Additive intraday overlay; withheld for degraded holdings.
+      intraday: degraded ? undefined : intradayOverlays[b.position.ticker.toUpperCase()],
     };
   });
 

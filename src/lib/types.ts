@@ -240,6 +240,42 @@ export type InsiderOverlay = {
   lastDate: string | null;
 };
 
+// [intraday] Intraday technicals + micro-regime overlay (ADDITIVE)
+// ---------------------------------------------------------------------------
+//
+// Display-only daily-trader overlay computed from Mboum intraday bars: anchored
+// /session VWAP, price-vs-VWAP state, short-period ATR (suggested stop +
+// VWAP±k·ATR bands) and a per-symbol micro-regime. It NEVER feeds the existing
+// 0-100 score or BUY/HOLD/SELL Signal. Attached optionally to Holding /
+// WatchlistItem by portfolio.ts. Mirrors the runtime `IntradayOverlay` in
+// @/lib/intraday (kept structurally identical so shared types stay free of the
+// server-only import). null-safe: always optional; every field may be null.
+export type IntradayMicroRegime = "trend_up" | "trend_down" | "chop";
+export type IntradayVwapState =
+  | "reclaim"
+  | "lose"
+  | "above"
+  | "below"
+  | "at"
+  | null;
+
+export type IntradayOverlay = {
+  vwap: number | null;
+  anchoredVwap: number | null;
+  priceVsVwapPct: number | null;
+  vwapState: IntradayVwapState;
+  atr: number | null;
+  atrPct: number | null;
+  suggestedStop: number | null;
+  bands: { lower: number | null; upper: number | null } | null;
+  microRegime: IntradayMicroRegime | null;
+  adx: number | null;
+  realizedVol: number | null;
+  interval: string;
+  bars: number;
+};
+// [intraday] end
+
 export type Holding = {
   ticker: string;
   companyName: string;
@@ -272,6 +308,8 @@ export type Holding = {
   earnings?: EarningsSignal;
   // [insider] Optional insider cluster-buy overlay (additive; null-safe).
   insider?: InsiderOverlay;
+  // [intraday] Optional intraday technicals + micro-regime overlay (additive; null-safe).
+  intraday?: IntradayOverlay;
 };
 
 // ---------------------------------------------------------------------------
@@ -659,6 +697,8 @@ export type WatchlistItem = {
   earnings?: EarningsSignal;
   // [insider] Optional insider cluster-buy overlay (additive; null-safe).
   insider?: InsiderOverlay;
+  // [intraday] Optional intraday technicals + micro-regime overlay (additive; null-safe).
+  intraday?: IntradayOverlay;
 };
 
 export type WatchlistResponse = {
