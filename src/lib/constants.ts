@@ -91,6 +91,58 @@ export const CONCENTRATION_LIMITS = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// [divdeploy] Diversification-aware cash deployment
+// ---------------------------------------------------------------------------
+
+/**
+ * [divdeploy] Controls the redistribution engine's "diversifier" path: when the
+ * book has freed cash sitting idle AND is concentrated/under-diversified, the
+ * engine ALSO surfaces the best-ranked watchlist candidate(s) in UNDER-OWNED
+ * sectors at a LOWER score bar than the strict 70 buy gate, so freed cash rotates
+ * away from concentrated tech instead of rebuilding it. Every knob is visible and
+ * overridable here; defaults preserve existing behaviour when the path doesn't
+ * apply (no idle cash / well-diversified book). Set `enabled: false` to fully
+ * restore the legacy single-bar behaviour.
+ */
+export const DIVERSIFICATION_DEPLOY = {
+  /** Master switch for the diversifier path. */
+  enabled: true,
+  /**
+   * Idle-cash trigger: the path only activates when investable cash (after the
+   * cash buffer, plus this run's proceeds) is at least this FRACTION of the
+   * total book. Below it, there is no "meaningful idle cash" to rotate.
+   */
+  minIdleCashPct: 0.10,
+  /**
+   * Concentration trigger: the path only activates when the book is actually
+   * concentrated — either the largest single name OR the largest sector is at
+   * or above these fractions of the total book.
+   */
+  concentratedSingleNamePct: 0.25,
+  concentratedTopSectorPct: 0.40,
+  /**
+   * Lowered score bar for a diversifier entry (vs the strict 70 normal-buy bar).
+   * A candidate in an under-owned sector scoring at/above this still qualifies
+   * ONLY through the diversifier path, clearly labelled as a rotation entry.
+   */
+  diversifierMinBar: 55,
+  /**
+   * Ranking bonus (in score points) added to a candidate whose sector is NOT
+   * already represented in the book, so fresh sectors are preferred over names
+   * that rebuild existing exposure. Applied to the deployment ORDERING only —
+   * it never changes the underlying 20-metric engine score or the qualifying bar.
+   */
+  freshSectorBonus: 8,
+  /**
+   * A held name is "already a large share of the book" (and so deprioritised as
+   * a top-up target in favour of diversifiers) at/above this fraction of total.
+   */
+  largeHoldingPct: 0.20,
+  /** Max diversifier entries surfaced per run via the lowered bar. */
+  maxDiversifiers: 2,
+} as const;
+
+// ---------------------------------------------------------------------------
 // Scoring engine config
 // ---------------------------------------------------------------------------
 
