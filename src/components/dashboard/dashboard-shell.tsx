@@ -48,6 +48,8 @@ import { ConcentrationPanel } from "@/components/dashboard/concentration-panel";
 // [insider] additive insider cluster-buy overlay panel (slow signal)
 import { InsiderPanel } from "@/components/dashboard/insider-panel";
 import { RealizedPnl } from "@/components/dashboard/realized-pnl";
+// [journal] Trade journal + execution/slippage analytics panel.
+import { JournalPanel } from "@/components/dashboard/journal-panel";
 import { ProvidersBadge } from "@/components/dashboard/providers-badge";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
 import { AnnouncementsFeed } from "@/components/dashboard/announcements-feed";
@@ -435,6 +437,10 @@ function ReadyView({
           <TabsTrigger value="analyzer" className="rounded-full px-4">
             Analyzer
           </TabsTrigger>
+          {/* [journal] */}
+          <TabsTrigger value="journal" className="rounded-full px-4">
+            Journal
+          </TabsTrigger>
           <TabsTrigger value="ask" className="rounded-full px-4">
             Ask
           </TabsTrigger>
@@ -565,6 +571,11 @@ function ReadyView({
 
         <TabsContent value="analyzer">
           <ArticleAnalyzer />
+        </TabsContent>
+
+        {/* [journal] Trade journal + execution/slippage analytics */}
+        <TabsContent value="journal" className="space-y-4">
+          <JournalPanel />
         </TabsContent>
 
         <TabsContent value="ask">
