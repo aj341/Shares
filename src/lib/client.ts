@@ -15,6 +15,8 @@ import type {
 } from "@/lib/types";
 // [top3] response type lives with the engine, not in shared types.
 import type { TopMovesResponse } from "@/lib/top-moves";
+// [chart] intraday 1D series type lives with its engine, not in shared types.
+import type { IntradaySeries } from "@/lib/intraday-chart";
 
 /** Client-side typed fetchers for the dashboard API routes. */
 
@@ -57,6 +59,13 @@ export function fetchBrief(): Promise<DailyBrief> {
 // [top3] AI "Top 3 Moves Today".
 export function fetchTopMoves(): Promise<TopMovesResponse> {
   return getJson<TopMovesResponse>("/api/top-moves");
+}
+
+// [chart] Per-stock intraday 1D series for the live chart.
+export function fetchIntraday(symbol: string): Promise<IntradaySeries> {
+  return getJson<IntradaySeries>(
+    `/api/intraday?symbol=${encodeURIComponent(symbol)}`
+  );
 }
 
 export function fetchResearch(ticker: string): Promise<{ holding: Holding }> {

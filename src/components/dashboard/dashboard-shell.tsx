@@ -96,6 +96,8 @@ export function DashboardShell() {
   const [selected, setSelected] = React.useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   const [dialog, setDialog] = React.useState<DialogState>(null);
+  // [chart] bumped on every full refresh so intraday charts re-pull live data.
+  const [chartRefresh, setChartRefresh] = React.useState(0);
 
   const load = React.useCallback(async () => {
     setState({ status: "loading" });
@@ -195,6 +197,7 @@ export function DashboardShell() {
     void loadStocks();
     void loadWatch();
     void loadAlerts();
+    setChartRefresh((n) => n + 1); // [chart]
   }, [load, loadPerf, loadStocks, loadWatch, loadAlerts]);
 
   // Self-healing IBKR freshness: a manual "Sync IBKR" action plus an automatic
@@ -260,6 +263,7 @@ export function DashboardShell() {
             stocks={stocks}
             watch={watch}
             alerts={alerts}
+            chartRefresh={chartRefresh}
             onSelect={handleSelect}
             onWatchSelect={handleWatchSelect}
             onAction={openDialog}
@@ -271,6 +275,7 @@ export function DashboardShell() {
         holding={selectedHolding}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
+        refreshKey={chartRefresh}
       />
 
       <PortfolioDialogs
@@ -383,6 +388,7 @@ function ReadyView({
   stocks,
   watch,
   alerts,
+  chartRefresh,
   onSelect,
   onWatchSelect,
   onAction,
@@ -392,6 +398,7 @@ function ReadyView({
   stocks: StocksState;
   watch: WatchState;
   alerts: PortfolioAlert[];
+  chartRefresh: number;
   onSelect: (ticker: string) => void;
   onWatchSelect: (ticker: string) => void;
   onAction: (type: DialogType, ticker?: string) => void;
@@ -490,6 +497,7 @@ function ReadyView({
             loading={stocks.loading}
             onSelect={onSelect}
             onAction={(t, ticker) => onAction(t, ticker)}
+            refreshKey={chartRefresh}
           />
         </TabsContent>
 
