@@ -93,7 +93,7 @@ export function EconCalendarStrip() {
           {data.today.length > 0 ? "Today" : "Upcoming"}
         </span>
         {events.map((e, i) => (
-          <span key={`${e.date}-${e.title}-${i}`} className="flex items-center gap-1">
+          <span key={`${e.date}-${e.title}-${i}`} className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
             {i > 0 ? (
               <Dot className="h-3 w-3 text-muted-foreground/50" />
             ) : null}

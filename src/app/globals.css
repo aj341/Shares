@@ -139,3 +139,32 @@
     letter-spacing: -0.01em;
   }
 }
+
+/* [mobile] Safe-area + narrow-viewport hardening.
+ * - .safe-top adds the notch inset to the sticky header so it is never clipped.
+ * - html/body never scroll horizontally; long content wraps or scrolls inside
+ *   its own container (cards/tables use overflow-x-auto locally).
+ */
+@layer utilities {
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .safe-x {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Long tickers / numbers must never force the viewport wider on a phone. */
+@media (max-width: 420px) {
+  .container {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}

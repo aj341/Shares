@@ -187,7 +187,8 @@ export function WalkForwardPanel() {
                 {data.meanEdgeDegradation.toFixed(2)} &middot; {verdictLabel(data.overfitVerdict)}
               </span>
             </div>
-            <table className="w-full">
+            <div className="-mx-1 overflow-x-auto px-1">
+            <table className="w-full min-w-[20rem]">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="pb-2 font-medium">Band</th>
@@ -223,6 +224,7 @@ export function WalkForwardPanel() {
                 ))}
               </tbody>
             </table>
+            </div>
             <p className="text-xs text-muted-foreground">
               Out-of-sample avg return (win-rate &middot; n) and d = in-sample&minus;out-of-sample
               edge per band. Rolling {data.config.isWindowDays}d fit /{" "}

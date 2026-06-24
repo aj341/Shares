@@ -323,20 +323,20 @@ function Header({
     ? new Date(asOf).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })
     : null;
   return (
-    <header className="sticky top-0 z-30 border-b border-border/60 bg-background/70 backdrop-blur-xl">
-      <div className="container mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 lg:px-8">
+    <header className="safe-top sticky top-0 z-30 border-b border-border/60 bg-background/70 backdrop-blur-xl">
+      <div className="container mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-3 sm:gap-4 sm:px-4 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <div className="shrink-0 rounded-xl bg-gradient-to-br from-[hsl(var(--brand))] to-[hsl(var(--violet))] p-2 text-white shadow-lg shadow-[hsl(var(--brand))]/20">
             <LineChart className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <h1 className="truncate text-sm font-bold leading-none">AJ’s Portfolio</h1>
+            <h1 className="text-sm font-bold leading-tight">AJ’s Portfolio</h1>
             <p className="text-[11px] text-muted-foreground">Trading Dashboard</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <LiveClock />
-          <ProvidersBadge />
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+          <span className="hidden sm:inline-flex"><LiveClock /></span>
+          <span className="hidden sm:inline-flex"><ProvidersBadge /></span>
           {source ? (
             <Badge
               variant={source === "mock" ? "warning" : "positive"}

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -21,6 +21,14 @@ export const metadata: Metadata = {
     "Premium dashboard for a personal Nasdaq portfolio: scoring, executive sentiment, disagreement scorecard and redistribution.",
 };
 
+// [mobile] Mobile-first viewport. viewportFit:"cover" lets the sticky header
+// honour env(safe-area-inset-top) on notched phones so it is never clipped.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -32,7 +40,7 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${inter.variable} ${jetbrainsMono.variable}`}
     >
-      <body className="min-h-screen font-sans antialiased">
+      <body className="min-h-screen overflow-x-hidden font-sans antialiased">
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
