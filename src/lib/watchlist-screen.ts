@@ -49,7 +49,7 @@ export type ScanResult = {
 const DAYS_12M = 252;
 const DAYS_1M = 21;
 const DAYS_6M = 126;
-const BATCH_SIZE = 5;
+const BATCH_SIZE = 3; // [scanfix] smaller batches: avoid Mboum rate-limit drops across 104 names
 
 // In-memory fallback (and same-process cache) when Postgres is unavailable.
 let MEM_RANKINGS: WatchlistRanking[] | null = null;
@@ -143,7 +143,12 @@ async function scanTicker(
   ticker: string,
   qqq6mPct: number
 ): Promise<RawStats | null> {
-  const candles = await getStockHistory(ticker, { monthsBack: 13 });
+  let candles = await getStockHistory(ticker, { monthsBack: 13 });
+  // [scanfix] retry once on an empty pull (transient Mboum rate-limit) before dropping.
+  if (candles.length === 0) {
+    await new Promise((r) => setTimeout(r, 600));
+    candles = await getStockHistory(ticker, { monthsBack: 13 });
+  }
   // Need a full 12-month lookback (252 trading days) plus the excluded month.
   if (candles.length <= DAYS_12M) return null;
   const closes = candles.map((c) => c.adjClose);
@@ -288,6 +293,10 @@ export async function runWatchlistScan(): Promise<ScanResult> {
     for (const res of settled) {
       scanned += 1;
       if (res.status === "fulfilled" && res.value) stats.push(res.value);
+    }
+    // [scanfix] brief spacing so a 104-name scan doesn't trip Mboum throttling.
+    if (i + BATCH_SIZE < UNIVERSE.length) {
+      await new Promise((r) => setTimeout(r, 350));
     }
   }
 
