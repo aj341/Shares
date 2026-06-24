@@ -134,6 +134,10 @@ export function scoreHolding(
   }
 
   // Rule 4: over the position cap → cap at 79.
+  // [score] SINGLE OWNER of position-size effect. The "Position size vs 35% cap"
+  // metric is built as additive (display-only) in live-metrics.ts / mock-data.ts
+  // so it no longer feeds the risk sub-score — this hard cap is the only place
+  // position weight changes the score, removing the previous double-count.
   const capPct = PORTFOLIO_RULES.maxPositionWeight * 100;
   if (ctx.portfolioWeight > capPct) {
     if (score > 79) {

@@ -228,12 +228,16 @@ export function buildFactorMetrics(
   if (rs.rank != null && rs.universeSize > 1) {
     const top = rs.percentile != null && rs.percentile >= 67;
     const bottom = rs.percentile != null && rs.percentile <= 33;
+    // [score] Honest label: the portfolio and watchlist builders each call
+    // rankCrossSection over their OWN set (holdings-only or watchlist-only), so
+    // this rank is "within the ranked set of N" — not a combined book+watchlist
+    // ranking. Relabelled to match what's actually computed.
     rows.push({
-      name: "RS rank (book + watchlist)",
+      name: "RS rank (within ranked set)",
       value: `#${rs.rank}/${rs.universeSize}`,
       category: "trend",
       status: top ? "positive" : bottom ? "negative" : "neutral",
-      description: `Cross-sectional relative-strength rank across holdings + watchlist (${rs.percentile}th pct).`,
+      description: `Cross-sectional relative-strength rank within this set of ${rs.universeSize} names (${rs.percentile}th pct).`,
     });
   }
 

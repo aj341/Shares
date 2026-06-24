@@ -47,7 +47,9 @@ export const MOCK_ANALYST: Record<string, AnalystView> = {
 };
 
 // ---------------------------------------------------------------------------
-// Metric definitions — the canonical 20 metrics, in contract order.
+// Metric definitions — the canonical 22 metrics, in contract order.
+// [score] Position-size row is built as an additive (display-only) metric so the
+// Rule-4 position cap in scoring.ts is the SINGLE owner of position-size effect.
 // ---------------------------------------------------------------------------
 
 type MetricDef = {
@@ -59,8 +61,10 @@ type MetricDef = {
 export const METRIC_DEFS: MetricDef[] = [
   // Trend (4)
   {
+    // [score] moved trend -> momentum: relative strength vs the benchmark is a
+    // cross-sectional momentum signal (a name-selector), not a trend-structure one.
     name: "Relative strength vs QQQ (3m)",
-    category: "trend",
+    category: "momentum",
     desc: {
       positive: "Outperforming QQQ by >2pts over ~3 months — market leadership.",
       neutral: "Tracking QQQ over ~3 months — in line with the index.",
@@ -131,7 +135,18 @@ export const METRIC_DEFS: MetricDef[] = [
       negative: "Negative short-term return, lagging the index.",
     },
   },
-  // Valuation (4)
+  {
+    // [score] Relative Volume (RVOL): today's (latest-bar) volume vs the same-
+    // period average. Primary intraday participation/confirmation filter.
+    name: "Relative volume (RVOL)",
+    category: "momentum",
+    desc: {
+      positive: "Volume running well above its recent average — strong participation.",
+      neutral: "Volume tracking its recent average — normal participation.",
+      negative: "Volume running below its recent average — thin participation.",
+    },
+  },
+  // Valuation (3)
   {
     name: "Analyst target upside",
     category: "valuation",
@@ -151,8 +166,10 @@ export const METRIC_DEFS: MetricDef[] = [
     },
   },
   {
+    // [score] moved valuation -> fundamental: an earnings beat/miss is a
+    // fundamental-quality signal, not a multiple/valuation signal.
     name: "Earnings surprise trend",
-    category: "valuation",
+    category: "fundamental",
     desc: {
       positive: "Consistent positive EPS surprises.",
       neutral: "Mixed surprise history.",
@@ -224,6 +241,17 @@ export const METRIC_DEFS: MetricDef[] = [
       negative: "At or above the 35% position cap.",
     },
   },
+  {
+    // [score] Liquidity gate: dollar-volume vs average dollar-volume adequacy.
+    // Tradability filter — illiquid names are penalised regardless of signal.
+    name: "Liquidity gate (dollar volume)",
+    category: "risk",
+    desc: {
+      positive: "Ample dollar liquidity vs its average — easy to enter/exit.",
+      neutral: "Adequate dollar liquidity vs its average.",
+      negative: "Thin dollar liquidity vs its average — execution / slippage risk.",
+    },
+  },
   // Sentiment (2)
   {
     name: "News / announcement sentiment",
@@ -253,61 +281,63 @@ export const METRIC_DEFS: MetricDef[] = [
 type Cell = [string | number, StatusTone];
 
 const METRIC_TABLE: Record<string, Cell[]> = {
+  // [score] 22 entries each, aligned by index to METRIC_DEFS: RVOL added at
+  // index 8 (momentum) and Liquidity gate at index 19 (risk).
   MSFT: [
     ["+4.8% vs QQQ", "positive"], ["1.3× avg vol", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
-    [61, "positive"], ["Bullish cross", "positive"], ["1.1x avg", "neutral"], ["+4.2%", "positive"],
+    [61, "positive"], ["Bullish cross", "positive"], ["1.1x avg", "neutral"], ["+4.2%", "positive"], ["1.4× RVOL", "neutral"],
     ["+11.4%", "positive"], ["Peer median", "neutral"], ["4 beats", "positive"], ["Stable", "neutral"],
     ["+14% YoY", "positive"], ["Expanding", "positive"], ["Net cash", "positive"],
-    ["Low", "positive"], ["Shallow", "positive"], ["18.4%", "positive"],
+    ["Low", "positive"], ["Shallow", "positive"], ["18.4%", "positive"], ["2.1× $vol", "positive"],
     ["Positive", "positive"], ["Upward", "positive"],
   ],
   RBLX: [
     ["-7.2% vs QQQ", "negative"], ["1.2× avg vol", "negative"], ["Lower third", "negative"], ["Lower highs", "negative"],
-    [42, "neutral"], ["Bearish cross", "negative"], ["0.8x avg", "negative"], ["-9.1%", "negative"],
+    [42, "neutral"], ["Bearish cross", "negative"], ["0.8x avg", "negative"], ["-9.1%", "negative"], ["0.6× RVOL", "negative"],
     ["+18.2%", "positive"], ["Rich", "negative"], ["Mixed", "neutral"], ["Expanding", "negative"],
     ["+29% YoY", "positive"], ["Improving", "positive"], ["Net cash", "positive"],
-    ["High", "negative"], ["Deep", "negative"], ["5.1%", "positive"],
+    ["High", "negative"], ["Deep", "negative"], ["5.1%", "positive"], ["0.7× $vol", "neutral"],
     ["Negative", "negative"], ["Downward", "negative"],
   ],
   GOOGL: [
     ["+3.9% vs QQQ", "positive"], ["1.2× avg vol", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
-    [58, "positive"], ["Bullish cross", "positive"], ["1.0x avg", "neutral"], ["+3.0%", "positive"],
+    [58, "positive"], ["Bullish cross", "positive"], ["1.0x avg", "neutral"], ["+3.0%", "positive"], ["1.2× RVOL", "neutral"],
     ["+9.1%", "positive"], ["Below history", "positive"], ["3 beats", "positive"], ["Stable", "neutral"],
     ["+13% YoY", "positive"], ["Expanding", "positive"], ["Net cash", "positive"],
-    ["Low", "positive"], ["Shallow", "positive"], ["13.4%", "positive"],
+    ["Low", "positive"], ["Shallow", "positive"], ["13.4%", "positive"], ["2.4× $vol", "positive"],
     ["Positive", "positive"], ["Upward", "positive"],
   ],
   // Class C (GOOG) tracks the same underlying business as Class A (GOOGL).
   GOOG: [
     ["+3.9% vs QQQ", "positive"], ["1.2× avg vol", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
-    [58, "positive"], ["Bullish cross", "positive"], ["1.0x avg", "neutral"], ["+3.0%", "positive"],
+    [58, "positive"], ["Bullish cross", "positive"], ["1.0x avg", "neutral"], ["+3.0%", "positive"], ["1.2× RVOL", "neutral"],
     ["+9.1%", "positive"], ["Below history", "positive"], ["3 beats", "positive"], ["Stable", "neutral"],
     ["+13% YoY", "positive"], ["Expanding", "positive"], ["Net cash", "positive"],
-    ["Low", "positive"], ["Shallow", "positive"], ["13.4%", "positive"],
+    ["Low", "positive"], ["Shallow", "positive"], ["13.4%", "positive"], ["2.4× $vol", "positive"],
     ["Positive", "positive"], ["Upward", "positive"],
   ],
   PLTR: [
     ["+12.4% vs QQQ", "positive"], ["1.6× avg vol", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
-    [79, "negative"], ["Bullish cross", "positive"], ["1.6x avg", "positive"], ["+22.0%", "positive"],
+    [79, "negative"], ["Bullish cross", "positive"], ["1.6x avg", "positive"], ["+22.0%", "positive"], ["1.8× RVOL", "positive"],
     ["-6.5%", "negative"], ["Very rich", "negative"], ["4 beats", "positive"], ["Expanding", "negative"],
     ["+27% YoY", "positive"], ["Expanding", "positive"], ["Net cash", "positive"],
-    ["High", "negative"], ["Moderate", "neutral"], ["18.6%", "positive"],
+    ["High", "negative"], ["Moderate", "neutral"], ["18.6%", "positive"], ["1.9× $vol", "positive"],
     ["Positive", "positive"], ["Upward", "positive"],
   ],
   MDB: [
     ["-3.1% vs QQQ", "negative"], ["1.0× avg vol", "neutral"], ["Mid-range", "neutral"], ["Choppy", "neutral"],
-    [46, "neutral"], ["Flat", "neutral"], ["0.9x avg", "neutral"], ["-3.2%", "negative"],
+    [46, "neutral"], ["Flat / no cross", "neutral"], ["0.9x avg", "neutral"], ["-3.2%", "negative"], ["0.9× RVOL", "neutral"],
     ["+14.0%", "positive"], ["Peer median", "neutral"], ["Mixed", "neutral"], ["Stable", "neutral"],
     ["+19% YoY", "positive"], ["Flat", "neutral"], ["Net cash", "positive"],
-    ["Elevated", "negative"], ["Moderate", "neutral"], ["8.9%", "positive"],
+    ["Elevated", "negative"], ["Moderate", "neutral"], ["8.9%", "positive"], ["0.8× $vol", "positive"],
     ["Neutral", "neutral"], ["Stable", "neutral"],
   ],
   NBIS: [
     ["+18.5% vs QQQ", "positive"], ["1.7× avg vol", "positive"], ["Upper third", "positive"], ["Higher highs", "positive"],
-    [67, "positive"], ["Bullish cross", "positive"], ["1.9x avg", "positive"], ["+13.2%", "positive"],
+    [67, "positive"], ["Bullish cross", "positive"], ["1.9x avg", "positive"], ["+13.2%", "positive"], ["2.2× RVOL", "positive"],
     ["+22.7%", "positive"], ["Rich", "negative"], ["2 beats", "positive"], ["Expanding", "negative"],
     ["+62% YoY", "positive"], ["Improving", "positive"], ["Net cash", "positive"],
-    ["High", "negative"], ["Deep", "negative"], ["12.6%", "positive"],
+    ["High", "negative"], ["Deep", "negative"], ["12.6%", "positive"], ["1.3× $vol", "positive"],
     ["Positive", "positive"], ["Upward", "positive"],
   ],
 };
@@ -323,6 +353,8 @@ export function getMockMetrics(ticker: string): Metric[] {
       category: def.category,
       status,
       description: def.desc[status],
+      // [score] Position-size row is display-only (additive): Rule-4 cap owns it.
+      ...(def.name === "Position size vs 35% cap" ? { additive: true as const } : {}),
     };
   });
 }

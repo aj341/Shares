@@ -93,22 +93,47 @@ export const CONCENTRATION_LIMITS = {
 // Scoring engine config
 // ---------------------------------------------------------------------------
 
+// [score] Daily-trader recalibration (2026-06). For a short-term / intraday
+// trader, price-based signals dominate: intraday time-series momentum and
+// cross-sectional relative strength are the first-order alpha drivers, with
+// trend continuation, liquidity/volume and the volatility regime close behind;
+// valuation and fundamentals are near-irrelevant at the trade horizon and matter
+// only insofar as they generate news / order flow. Sources: Intraday Time Series
+// Momentum (CentAUR / ScienceDirect S138641812100001X) -- robust intraday
+// momentum alpha, volatility a stronger driver than volume; "The impact of
+// intraday momentum on stock returns" (Murdoch) -- intraday momentum explains
+// more return variation than high-vol / mid-volume / low-liquidity conditions;
+// Interday Cross-Sectional Momentum (SSRN 4934543) -- relative strength as a
+// name selector; practitioner consensus on RVOL + liquidity as the primary
+// intraday filters (Investors Underground, Maverick Trading, Tickeron). Weights
+// still sum to 100.
+//
+// momentum 35: RSI, MACD, volume-vs-avg, short-term return, + new RVOL, + the
+//   relative-strength-vs-QQQ row moved in from trend -- the dominant intraday edge.
+// trend 25: trend health, price-vs-52w, volume-trend -- price continuation.
+// risk 20: realised vol, drawdown, + new liquidity gate -- volatility regime &
+//   tradability. (Position-size double-count removed: see scoring.ts Rule 4.)
+// sentiment 10: news flow, analyst-revision momentum -- catalysts drive order flow.
+// valuation 5 / fundamental 5: near-irrelevant intraday, kept as a small tilt.
 export const CATEGORY_WEIGHTS: Record<MetricCategory, number> = {
-  trend: 20,
-  momentum: 20,
-  valuation: 20,
-  fundamental: 20,
-  risk: 10,
+  trend: 25,
+  momentum: 35,
+  valuation: 5,
+  fundamental: 5,
+  risk: 20,
   sentiment: 10,
 };
 
-/** Expected metric count per category (20 metrics total). */
+/** Expected metric count per category (21 scored metrics total). [score]
+ *  +RVOL (momentum) and +Liquidity gate (risk) added; "Earnings surprise trend"
+ *  moved valuation->fundamental, "Relative strength vs QQQ" moved trend->momentum,
+ *  and the position-size row neutralised (Rule-4 cap is the single owner). */
 export const CATEGORY_METRIC_COUNTS: Record<MetricCategory, number> = {
-  trend: 4,
-  momentum: 4,
-  valuation: 4,
-  fundamental: 3,
-  risk: 3,
+  trend: 3,
+  momentum: 6,
+  valuation: 3,
+  fundamental: 4,
+  risk: 3, // realised vol, drawdown, liquidity gate (position-size row is additive)
   sentiment: 2,
 };
 
