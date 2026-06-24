@@ -17,6 +17,8 @@ import type {
 import type { TopMovesResponse } from "@/lib/top-moves";
 // [chart] intraday 1D series type lives with its engine, not in shared types.
 import type { IntradaySeries } from "@/lib/intraday-chart";
+// [chartframes] multi-timeframe chart series type lives with its engine.
+import type { ChartSeries, ChartRange } from "@/lib/chart-series";
 
 /** Client-side typed fetchers for the dashboard API routes. */
 
@@ -65,6 +67,13 @@ export function fetchTopMoves(): Promise<TopMovesResponse> {
 export function fetchIntraday(symbol: string): Promise<IntradaySeries> {
   return getJson<IntradaySeries>(
     `/api/intraday?symbol=${encodeURIComponent(symbol)}`
+  );
+}
+
+// [chartframes] Per-stock multi-timeframe series (1D · 5D · 1M · 6M · YTD · 1Y · 5Y · Max).
+export function fetchChart(symbol: string, range: ChartRange): Promise<ChartSeries> {
+  return getJson<ChartSeries>(
+    `/api/chart?symbol=${encodeURIComponent(symbol)}&range=${encodeURIComponent(range)}`
   );
 }
 
