@@ -47,14 +47,23 @@ type Working = {
  */
 type ConcCtx = {
   limits: ConcentrationLimits;
-  /** This holding's weight as a fraction of EQUITY (excl cash). */
+  /** This holding's weight as a fraction of the TOTAL book (incl cash). */ // [decfix]
   equityFrac: number;
-  /** Combined weight of this holding's sector as a fraction of EQUITY. */
+  /** Combined weight of this holding's sector as a fraction of the TOTAL book. */ // [decfix]
   sectorFrac: number;
   sector: string;
+  // [decfix] True only for the ONE name elected to carry a breached sector's
+  // trim. For every other member of an over-cap sector this is false, so they
+  // do NOT each independently solve the whole sector under cap (that caused the
+  // ~3x over-trim / sector liquidation). A single-name breach is unaffected.
+  sectorBreachAppliesHere: boolean;
 } | null;
 
-function decide(h: Holding, conc: ConcCtx = null): Decision {
+// [decfix] effectiveCap is the single-name cap (fraction of total book) the
+// BUY gate binds to. Defaults to maxPositionWeight (legacy) so the
+// respectConcentration:false path is unchanged; callers pass 0.30 when
+// concentration is on, reconciling the gate with the concentration cap.
+function decide(h: Holding, conc: ConcCtx = null, effectiveCap: number = maxPositionWeight): Decision {
   // SAFETY: never recommend trades off degraded (mock-fallback) data.
   if (h.dataQuality === "degraded") return "HOLD";
 
@@ -74,7 +83,9 @@ function decide(h: Holding, conc: ConcCtx = null): Decision {
   if (
     conc &&
     (conc.equityFrac > conc.limits.maxSingleNameWeight + 1e-9 ||
-      conc.sectorFrac > conc.limits.maxSectorWeight + 1e-9)
+      // [decfix] sector breach only trims the ONE elected name, not every member.
+      (conc.sectorBreachAppliesHere &&
+        conc.sectorFrac > conc.limits.maxSectorWeight + 1e-9))
   ) {
     return "TRIM_CONCENTRATION";
   }
@@ -97,7 +108,7 @@ function decide(h: Holding, conc: ConcCtx = null): Decision {
   if (
     h.score >= 70 &&
     h.verdict.verdict !== "negative" &&
-    h.portfolioWeight < maxPositionWeight * 100
+    h.portfolioWeight < effectiveCap * 100 // [decfix] reconciled single-name cap
   ) {
     return "BUY";
   }
@@ -156,8 +167,10 @@ function concentrationTrimShares(
       Math.max(0, Math.floor((L * totalValue) / h.currentPrice))
     );
   }
-  // Sector: reduce THIS name enough that its sector <= cap of total.
-  if (ctx.sectorFrac > limits.maxSectorWeight + 1e-9) {
+  // Sector: reduce THIS name enough that its sector <= cap of total. [decfix]
+  // Only the elected carrier sizes for the sector; other members never do, so
+  // the sector is brought just under cap ONCE rather than once per member.
+  if (ctx.sectorBreachAppliesHere && ctx.sectorFrac > limits.maxSectorWeight + 1e-9) {
     const L = Math.max(0.01, limits.maxSectorWeight - BUFFER);
     const sellDollars = ctx.sectorFrac * totalValue - L * totalValue;
     const sellShares = Math.ceil(Math.max(0, sellDollars) / h.currentPrice);
@@ -213,6 +226,13 @@ export function buildRedistribution(
   const concentrationOn = opts.respectConcentration !== false;
   const concLimits: ConcentrationLimits =
     opts.concentrationLimits ?? CONCENTRATION_LIMITS;
+  // [decfix] One coherent single-name cap. When concentration is ON the tighter
+  // concentration cap (0.30) binds the BUY gate AND the phase-3 position cap, so
+  // the rationale numbers match the actual ceiling. When concentration is OFF
+  // (legacy path) we fall back to the 0.35 maxPositionWeight, unchanged.
+  const effectiveSingleNameCap = concentrationOn
+    ? concLimits.maxSingleNameWeight
+    : maxPositionWeight;
   // [total-basis] Concentration is measured against the TOTAL portfolio value
   // (incl cash) so the cap matches the weights shown on the dashboard. Each
   // holding's portfolioWeight is already a % of the total book.
@@ -227,6 +247,28 @@ export function buildRedistribution(
       );
     }
   }
+  // [decfix] For each sector that BREACHES its cap, elect exactly ONE name to
+  // carry the sector trim: the largest-weight name, tie-broken to the weakest
+  // score. Only that ticker gets the sector breach attributed to it, so the
+  // sector is trimmed to just under cap ONCE (no ~3x overshoot from every
+  // member solving the whole sector independently). Single-name breaches are
+  // unaffected — they still trim per-name to the single-name cap below.
+  const sectorTrimCarrier = new Map<string, string>(); // sector -> ticker
+  if (concentrationOn && totalPortfolioValue > 0) {
+    const breachedSectors = new Set<string>();
+    for (const [sec, frac] of sectorFracBefore) {
+      if (frac > concLimits.maxSectorWeight + 1e-9) breachedSectors.add(sec);
+    }
+    for (const sec of breachedSectors) {
+      const members = holdings.filter((h) => sectorFor(h.ticker) === sec);
+      members.sort((a, b) => {
+        if (b.portfolioWeight !== a.portfolioWeight)
+          return b.portfolioWeight - a.portfolioWeight; // largest weight first
+        return a.score - b.score; // tie-break: weakest score first
+      });
+      if (members.length > 0) sectorTrimCarrier.set(sec, members[0].ticker);
+    }
+  }
   const concCtxFor = (h: Holding): ConcCtx => {
     if (!concentrationOn || totalPortfolioValue <= 0) return null;
     const sec = sectorFor(h.ticker);
@@ -235,6 +277,8 @@ export function buildRedistribution(
       equityFrac: h.portfolioWeight / 100,
       sectorFrac: sectorFracBefore.get(sec) ?? 0,
       sector: sec,
+      // [decfix] true only for the elected carrier of a breached sector.
+      sectorBreachAppliesHere: sectorTrimCarrier.get(sec) === h.ticker,
     };
   };
   // Regime-aware dynamic buffer (defaults to the static rule).
@@ -247,7 +291,7 @@ export function buildRedistribution(
 
   // --- Phase 1: decide sells / trims, collect proceeds. ---
   const working: Working[] = holdings.map((h) => {
-    const decision = decide(h, concCtxFor(h));
+    const decision = decide(h, concCtxFor(h), effectiveSingleNameCap); // [decfix]
     let sharesAfter = h.shares;
     let proceeds = 0;
     let realisedPnl = 0;
@@ -269,7 +313,11 @@ export function buildRedistribution(
             : trimShares(h);
       sharesAfter = h.shares - ts;
       proceeds = ts * h.currentPrice;
-      realisedPnl = ts * (h.currentPrice - h.entryPrice);
+      // [decfix] Cost-basis-derived realised P&L, consistent with FULL_SELL
+      // (proceeds − costBasis). Pro-rate the position cost basis by shares sold
+      // so TRIM and FULL_SELL use the SAME convention.
+      realisedPnl =
+        proceeds - (h.shares > 0 ? (h.costBasis * ts) / h.shares : 0);
       if (ts === 0) {
         // Trim too small to act on — treat as hold for this cycle.
         return { holding: h, decision: "HOLD", sharesAfter: h.shares, proceeds: 0, realisedPnl: 0 };
@@ -296,7 +344,9 @@ export function buildRedistribution(
         const overSingle =
           ctx != null && ctx.equityFrac > concLimits.maxSingleNameWeight + 1e-9;
         const overSector =
-          ctx != null && ctx.sectorFrac > concLimits.maxSectorWeight + 1e-9;
+          ctx != null &&
+          ctx.sectorBreachAppliesHere && // [decfix] only the elected carrier cites the sector reason
+          ctx.sectorFrac > concLimits.maxSectorWeight + 1e-9;
         const reasons: string[] = [];
         if (overSingle && ctx)
           reasons.push(
@@ -332,7 +382,7 @@ export function buildRedistribution(
   let availableToInvest = Math.max(0, cash - targetCash) + totalProceeds;
 
   // --- Phase 3: rank BUY candidates and allocate. ---
-  const cap = maxPositionWeight * totalPortfolioValue;
+  const cap = effectiveSingleNameCap * totalPortfolioValue; // [decfix] reconciled cap (0.30 when concentration on)
 
   const buyCandidates = working
     .filter((w) => w.decision === "BUY")
@@ -497,7 +547,7 @@ export function buildRedistribution(
         estimatedProceedsOrCost: round2(cost),
         rationale: concClamped
           ? `Score ${h.score} (${h.signal}); buy sized DOWN to respect concentration limits (single-name ${(concLimits.maxSingleNameWeight * 100).toFixed(0)}%, top-3 ${(concLimits.maxTop3 * 100).toFixed(0)}%, sector ${(concLimits.maxSectorWeight * 100).toFixed(0)}%).`
-          : `Score ${h.score} (${h.signal}); below 30% cap — deploy capital up to cap.`,
+          : `Score ${h.score} (${h.signal}); below the ${(effectiveSingleNameCap * 100).toFixed(0)}% single-name cap — deploy capital up to cap.`, // [decfix]
       });
     } else {
       if (newPositions.length >= MAX_NEW_POSITIONS) continue;

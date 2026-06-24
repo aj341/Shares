@@ -73,10 +73,11 @@ export const PORTFOLIO_RULES = {
  *
  * All values are FRACTIONS of the TOTAL portfolio (incl. cash) — matching the weights shown on the dashboard. Every
  * default is visible and overridable here. Note: `maxSingleNameWeight` (0.30)
- * is intentionally TIGHTER than PORTFOLIO_RULES.maxPositionWeight (0.35) — the
- * concentration module is a stricter advisory layer; the redistribution engine
- * still uses the 0.35 hard cap for the after-snapshot, and only ADDS the
- * concentration checks below when they would block a buy or flag a trim.
+ * is the EFFECTIVE single-name cap the redistribution engine binds to for the
+ * BUY gate, the phase-3 position cap and its rationale strings — it is TIGHTER
+ * than (and supersedes) PORTFOLIO_RULES.maxPositionWeight (0.35), which now only
+ * governs the scoring "over the cap" override and the legacy display metric.
+ * [decfix] Reconciled so there is one coherent single-name number (30%).
  */
 export const CONCENTRATION_LIMITS = {
   /** Hard cap on any single name (30% of equity). */

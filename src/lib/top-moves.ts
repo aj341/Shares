@@ -371,9 +371,14 @@ function generateCandidates(
       action = "SELL";
       reason = `Exit ${h.ticker} — score ${h.score} with a ${stance ?? "weak"} verdict; the rebalancer flags a full sell.`;
       why = "Thesis has broken; capital is better deployed elsewhere.";
-    } else if (concentration === "BREACH") {
+    } else if (concentration === "BREACH" && rec?.action === "TRIM") {
+      // [decfix] Only surface a concentration-breach TRIM when the rebalancer
+      // ACTUALLY emitted a TRIM rec for this ticker (a SELL is handled above).
+      // The BREACH status keys off the BEFORE assessment, so without this gate
+      // Top-3 could show a trim the redistribution engine never produced (e.g. a
+      // sector breach pinned to the largest name that wasn't the trimmed one).
       action = "TRIM";
-      reason = `Trim ${h.ticker} — concentration breach at ${fmtPct(h.portfolioWeight)} of the book; over the single-name cap.`;
+      reason = `Trim ${h.ticker} — concentration breach at ${fmtPct(h.portfolioWeight)} of the book; over the single-name cap, and the rebalancer recommends lightening up.`;
       why = "Reduce single-name risk before adding anywhere else.";
     } else if (rec?.action === "TRIM") {
       action = "TRIM";
