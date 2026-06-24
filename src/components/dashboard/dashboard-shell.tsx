@@ -49,6 +49,9 @@ import { ConcentrationPanel } from "@/components/dashboard/concentration-panel";
 import { InsiderPanel } from "@/components/dashboard/insider-panel";
 // [intraday] additive intraday VWAP/ATR/micro-regime panel (daily-trader overlay)
 import { IntradayPanel } from "@/components/dashboard/intraday-panel";
+// [scanner] "Today's Battle List" gap scanner + econ-calendar strip (additive).
+import { BattleList } from "@/components/dashboard/battle-list";
+import { EconCalendarStrip } from "@/components/dashboard/econ-calendar-strip";
 import { RealizedPnl } from "@/components/dashboard/realized-pnl";
 import { ProvidersBadge } from "@/components/dashboard/providers-badge";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
@@ -405,6 +408,8 @@ function ReadyView({
     <div className="space-y-6">
       {/* [regime] market-regime / breadth context (additive, non-blocking) */}
       <RegimeBanner />
+      {/* [scanner] high-impact macro events + intraday blackout flag */}
+      <EconCalendarStrip />
       <AlertsBanner alerts={alerts} />
       <KpiCards portfolio={portfolio} pnlByPeriod={perf.data?.pnlByPeriod ?? null} />
 
@@ -513,6 +518,8 @@ function ReadyView({
             <InsiderPanel />
             {/* [intraday] intraday VWAP/ATR/micro-regime (daily-trader overlay) */}
             <IntradayPanel />
+            {/* [scanner] "Today's Battle List" — pre-market gap scanner */}
+            <BattleList onSelect={onWatchSelect} />
           </div>
 
           <RealizedPnl />
