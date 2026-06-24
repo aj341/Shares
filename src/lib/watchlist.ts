@@ -377,9 +377,14 @@ async function enrichRanked(
 /** Full ranked set as WatchlistItems. Reuses already-enriched curated `items`
  *  where tickers overlap (avoids duplicate Mboum work). Bounded concurrency. */
 async function buildFullRanked(curated: WatchlistItem[]): Promise<WatchlistItem[]> {
+  // [wlperf] cap live engine re-scoring to the top names by composite rank —
+  // far more than the old 8, includes the best per-sector diversifiers, and
+  // keeps /api/redistribution + /api/watchlist fast (the 15-min cache covers
+  // the rest). Lower-ranked names still scan; they surface as the cache cycles.
+  const FULL_RANKED_CAP = 45;
   let pool: WatchlistRanking[] = [];
   try {
-    pool = await getAllRanked();
+    pool = (await getAllRanked()).slice(0, FULL_RANKED_CAP);
   } catch (err) {
     if (process.env.NODE_ENV !== "production") {
       console.warn("[wlfilter] full ranked unavailable:", (err as Error).message);
@@ -549,7 +554,12 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
   // [wlfilter] Build the FULL ranked set (every scanned, non-held name) for the
   // sector filter + redistribution coverage. Reuses the curated items above
   // where tickers overlap. Null-safe: failures degrade to the curated list.
-  const all = await buildFullRanked(items).catch(() => items);
+  // [wlperf] never let the full-ranked build hang a request; fall back to the
+  // curated set if it runs long (it warms into the 15-min cache next call).
+  const all = await Promise.race([
+    buildFullRanked(items),
+    new Promise<WatchlistItem[]>((res) => setTimeout(() => res(items), 18000)),
+  ]).catch(() => items);
 
   const result: WatchlistResponse = {
     items,
