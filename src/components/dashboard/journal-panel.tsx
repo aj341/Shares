@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn, formatUsd } from "@/lib/utils";
 import { signalToVariant, signedTextClass } from "@/lib/ui";
 import { STATUS_LABELS } from "@/lib/constants";
+import { WhatIfPanel } from "@/components/dashboard/whatif-panel"; // [whatif]
 import type { Signal } from "@/lib/types";
 
 /**
@@ -339,6 +340,9 @@ export function JournalPanel() {
           </p>
         </CardContent>
       </Card>
+
+      {/* [whatif] Sell-decision counterfactual — "what if I hadn't sold?" */}
+      <WhatIfPanel />
 
       <Card>
         <CardHeader className="pb-3">
