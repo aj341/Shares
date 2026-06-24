@@ -319,3 +319,165 @@ export async function getAnalystRatings(symbol: string): Promise<AnalystRatings 
     consensus,
   };
 }
+
+// ---------------------------------------------------------------------------
+// [scanner] Movers / screener / economic-events endpoints + OHLC history.
+// ADDITIVE: new exports only; nothing above is touched. Every function is
+// null-safe (wrapped in `safe`) so a missing key / failed call yields [] / null
+// and the scanner degrades gracefully. See src/lib/scanner.ts + econ-calendar.ts.
+// ---------------------------------------------------------------------------
+
+/**
+ * [scanner] One screener row. Mboum's /markets/screener `body` is an array of
+ * Yahoo-style quote objects with NUMERIC fields (unlike /movers which returns
+ * formatted strings), so this is our primary candidate source. Only the fields
+ * the scanner reads are typed; everything is optional/defensive.
+ */
+export type MboumScreenerRow = {
+  symbol?: string;
+  shortName?: string;
+  longName?: string;
+  displayName?: string;
+  marketState?: string;
+  regularMarketPrice?: number;
+  regularMarketPreviousClose?: number;
+  regularMarketChangePercent?: number;
+  regularMarketOpen?: number;
+  regularMarketDayHigh?: number;
+  regularMarketDayLow?: number;
+  regularMarketVolume?: number;
+  averageDailyVolume3Month?: number;
+  averageDailyVolume10Day?: number;
+  preMarketPrice?: number;
+  preMarketChange?: number;
+  preMarketChangePercent?: number;
+  postMarketPrice?: number;
+  postMarketChangePercent?: number;
+  fiftyTwoWeekHigh?: number;
+  fiftyTwoWeekLow?: number;
+  marketCap?: number;
+  averageAnalystRating?: string;
+};
+
+/** Screener "list" presets we use for the Battle List candidate pool. */
+export type MboumScreenerList =
+  | "day_gainers"
+  | "day_losers"
+  | "most_actives"
+  | "trending"
+  | "small_cap_gainers"
+  | "growth_technology_stocks";
+
+/**
+ * [scanner] Pull a single screener list (cached). Returns [] on any failure or
+ * missing key. `revalidate` defaults to 5 min — pre-market candidate sets move
+ * but we still cache hard to stay inside Mboum quotas.
+ */
+export async function getScreenerList(
+  list: MboumScreenerList,
+  opts: { offset?: number; revalidate?: number } = {}
+): Promise<MboumScreenerRow[]> {
+  const { offset = 0, revalidate = 5 * 60 } = opts;
+  const data = await safe(() =>
+    mboumFetch<{ body?: MboumScreenerRow[] }>(
+      "/markets/screener",
+      { list, offset },
+      revalidate
+    )
+  );
+  return Array.isArray(data?.body) ? (data!.body as MboumScreenerRow[]) : [];
+}
+
+/**
+ * [scanner] OHLC daily history (ascending), including HIGH/LOW so the scanner
+ * can compute ATR. Mirrors getStockHistory's windowing + zero-bar guard but
+ * keeps high/low/open (getStockHistory drops them). Returns [] on failure.
+ */
+export type MboumOHLC = {
+  date: string;
+  dateUtc: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
+
+export async function getStockHistoryOHLC(
+  symbol: string,
+  opts: { interval?: MboumInterval; days?: number; monthsBack?: number } = {}
+): Promise<MboumOHLC[]> {
+  const { interval = "1d", monthsBack = 3, days } = opts;
+  const data = await safe(() =>
+    mboumGet<MboumHistoryResponse>("/markets/stock/history", {
+      symbol,
+      interval,
+      diffandsplits: "false",
+    })
+  );
+  if (!data?.body) return [];
+  const windowSecs = (days != null ? days : monthsBack * 31) * 24 * 60 * 60;
+  const cutoff = Math.floor(Date.now() / 1000) - windowSecs;
+  return Object.values(data.body)
+    .filter(
+      (c) =>
+        c &&
+        Number.isFinite(c.close) &&
+        c.close > 0 &&
+        c.date_utc >= cutoff
+    )
+    .map((c) => ({
+      date: c.date,
+      dateUtc: c.date_utc,
+      open: Number.isFinite(c.open) ? c.open : c.close,
+      high: Number.isFinite(c.high) ? c.high : c.close,
+      low: Number.isFinite(c.low) ? c.low : c.close,
+      close: c.close,
+      volume: c.volume ?? 0,
+    }))
+    .sort((a, b) => a.dateUtc - b.dateUtc);
+}
+
+/**
+ * [scanner] Intraday bars (e.g. 5m/15m) for opening-range context. Mboum's
+ * history endpoint only documents 1h+ intervals; we request the finest the
+ * account supports and the caller treats absence as "no intraday context"
+ * (graceful). Returns [] on failure.
+ */
+export async function getIntradayBars(
+  symbol: string,
+  interval: MboumInterval = "1h"
+): Promise<MboumOHLC[]> {
+  return getStockHistoryOHLC(symbol, { interval, days: 5 });
+}
+
+/**
+ * [scanner] Raw economic-calendar events from Mboum
+ * (/markets/calendar/economic_events). The documented response shape varies by
+ * plan, so this returns the loosely-typed rows and the econ-calendar module
+ * does the defensive field-mapping. Returns [] on failure / missing key.
+ */
+export type MboumEconEventRaw = Record<string, unknown>;
+
+export async function getEconomicEventsRaw(): Promise<MboumEconEventRaw[]> {
+  const data = await safe(() =>
+    mboumFetch<unknown>("/markets/calendar/economic_events", {}, 60 * 60)
+  );
+  // Mboum may return { body: [...] }, { data: [...] }, or a bare array.
+  if (Array.isArray(data)) return data as MboumEconEventRaw[];
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    for (const key of ["body", "data", "events", "result"]) {
+      const v = obj[key];
+      if (Array.isArray(v)) return v as MboumEconEventRaw[];
+      // Some feeds nest by date: { "2026-06-24": [...] }.
+    }
+    // Date-keyed object -> flatten arrays of rows.
+    const flat: MboumEconEventRaw[] = [];
+    for (const v of Object.values(obj)) {
+      if (Array.isArray(v)) flat.push(...(v as MboumEconEventRaw[]));
+    }
+    if (flat.length > 0) return flat;
+  }
+  return [];
+}

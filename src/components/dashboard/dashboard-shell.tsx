@@ -47,6 +47,9 @@ import { PortfolioRisk } from "@/components/dashboard/portfolio-risk";
 import { ConcentrationPanel } from "@/components/dashboard/concentration-panel";
 // [insider] additive insider cluster-buy overlay panel (slow signal)
 import { InsiderPanel } from "@/components/dashboard/insider-panel";
+// [scanner] "Today's Battle List" gap scanner + econ-calendar strip (additive).
+import { BattleList } from "@/components/dashboard/battle-list";
+import { EconCalendarStrip } from "@/components/dashboard/econ-calendar-strip";
 import { RealizedPnl } from "@/components/dashboard/realized-pnl";
 import { ProvidersBadge } from "@/components/dashboard/providers-badge";
 import { RebalancingCards } from "@/components/dashboard/rebalancing-cards";
@@ -403,6 +406,8 @@ function ReadyView({
     <div className="space-y-6">
       {/* [regime] market-regime / breadth context (additive, non-blocking) */}
       <RegimeBanner />
+      {/* [scanner] high-impact macro events + intraday blackout flag */}
+      <EconCalendarStrip />
       <AlertsBanner alerts={alerts} />
       <KpiCards portfolio={portfolio} pnlByPeriod={perf.data?.pnlByPeriod ?? null} />
 
@@ -509,6 +514,8 @@ function ReadyView({
             <EarningsCalendar />
             {/* [insider] slow open-market insider cluster-buy overlay */}
             <InsiderPanel />
+            {/* [scanner] "Today's Battle List" — pre-market gap scanner */}
+            <BattleList onSelect={onWatchSelect} />
           </div>
 
           <RealizedPnl />

@@ -764,3 +764,22 @@ export type {
   NewsCatalyst,
   CatalystsResult,
 } from "@/lib/catalysts";
+
+// [scanner] "Today's Battle List" gap scanner + economic-calendar awareness.
+// ADDITIVE: types live in their feature modules (src/lib/scanner.ts and
+// src/lib/econ-calendar.ts) and are re-exported here for convenience, mirroring
+// the [news] block above. None of these feed the 0-100 score or BUY/HOLD/SELL
+// Signal — the scanner only READS the existing additive factor / relative-
+// strength / insider fields and blends them into a separate "battle score".
+export type {
+  BattleCandidate,
+  ScannerResponse,
+  ScannerDirection,
+  OpeningRange,
+} from "@/lib/scanner";
+export type {
+  EconEvent,
+  EconCalendar,
+  EconImpact,
+  BlackoutWindow,
+} from "@/lib/econ-calendar";
