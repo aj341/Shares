@@ -24,9 +24,10 @@ export type ConcentrationStatus = "OK" | "WARN" | "BREACH";
 export type ConcentrationGrade = "A" | "B" | "C" | "D";
 
 /**
- * Configurable concentration limits. All are fractions of total equity unless
- * noted. Defaults live in constants (CONCENTRATION_LIMITS) and are fully
- * visible/overridable.
+ * Configurable concentration limits. All are fractions of the TOTAL portfolio
+ * (incl. cash) unless noted — matching the weights shown on the dashboard.
+ * Defaults live in constants (CONCENTRATION_LIMITS) and are fully
+ * visible/overridable. [decfix] doc corrected: total-basis, not equity-only.
  */
 export type ConcentrationLimits = {
   /** Hard cap on any single name's weight (e.g. 0.30 = 30%). */
@@ -44,11 +45,11 @@ export type ConcentrationLimits = {
 export type ConcentrationMetrics = {
   /** Number of equity names (excludes cash). */
   nameCount: number;
-  /** Largest single-name weight as a fraction of EQUITY (excl cash). */
+  /** Largest single-name weight as a fraction of the TOTAL book (incl cash). */ // [decfix]
   largestSingleNameWeight: number;
   /** Ticker of the largest name (null when no holdings). */
   largestSingleNameTicker: string | null;
-  /** Top-3 combined weight as a fraction of EQUITY. */
+  /** Top-3 combined weight as a fraction of the TOTAL book (incl cash). */ // [decfix]
   top3Weight: number;
   /** Herfindahl-Hirschman Index over equity weights (0..1). */
   hhi: number;
@@ -58,7 +59,7 @@ export type ConcentrationMetrics = {
   cashWeight: number;
   /** Top sector by combined equity weight. */
   topSector: string | null;
-  /** Top sector's combined weight as a fraction of EQUITY. */
+  /** Top sector's combined weight as a fraction of the TOTAL book (incl cash). */ // [decfix]
   topSectorWeight: number;
 };
 
@@ -85,7 +86,7 @@ export type ConcentrationAssessment = {
   overallStatus: ConcentrationStatus;
   /** Letter grade derived from HHI + breach count. */
   grade: ConcentrationGrade;
-  /** Suggested max $ per name from the single-name risk budget (equity-based). */
+  /** Suggested max $ per name from the single-name risk budget (total-book basis). */ // [decfix]
   maxDollarsPerName: number;
   /** Human-readable breach/warning lines (empty when all OK). */
   messages: string[];
@@ -181,7 +182,9 @@ const pct = (f: number): string => `${(f * 100).toFixed(1)}%`;
 export function assessConcentration(
   holdings: Holding[],
   limits: ConcentrationLimits = CONCENTRATION_LIMITS,
-  /** Total EQUITY value (USD or display ccy) for the $-per-name budget. Optional. */
+  // [decfix] Total PORTFOLIO value incl cash (USD or display ccy) for the
+  // $-per-name budget — callers pass totalPortfolioValue so the panel matches
+  // the redistribution engine. Optional; falls back to summed equity MV.
   totalEquity?: number
 ): ConcentrationAssessment {
   const metrics = computeConcentrationMetrics(holdings);

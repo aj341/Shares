@@ -15,11 +15,13 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const portfolio = await buildPortfolio();
-    const equity = portfolio.holdings.reduce((s, h) => s + h.marketValue, 0);
+    // [decfix] Pass the TOTAL portfolio value (incl cash), not a cash-excluded
+    // equity sum, so maxDollarsPerName matches the redistribution engine (which
+    // also passes totalPortfolioValue). Concentration is total-basis everywhere.
     const assessment = assessConcentration(
       portfolio.holdings,
       CONCENTRATION_LIMITS,
-      equity
+      portfolio.totalPortfolioValue
     );
     return NextResponse.json({
       ...assessment,
