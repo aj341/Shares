@@ -96,7 +96,7 @@ export function IntradayPanel() {
   const [failed, setFailed] = React.useState(false);
 
   React.useEffect(() => {
-    fetch("/api/intraday", { cache: "no-store" })
+    fetch("/api/intraday-overlay", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(setData)
       .catch(() => setFailed(true));
