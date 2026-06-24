@@ -15,7 +15,6 @@ import {
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +22,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Sparkline } from "@/components/dashboard/sparkline";
+// [chart] per-stock intraday 1D live chart
+import { IntradayChart } from "@/components/dashboard/intraday-chart";
 import { cn, formatCurrency, formatNumber, formatPct, formatUsd } from "@/lib/utils";
 import { signalToVariant, signedTextClass } from "@/lib/ui";
 import { STATUS_LABELS } from "@/lib/constants";
@@ -34,15 +34,16 @@ import type { Holding, StockTechnicals } from "@/lib/types";
 export function StocksTab({
   holdings,
   technicals,
-  loading,
   onSelect,
   onAction,
+  refreshKey = 0, // [chart] bumped by the dashboard refresh to re-pull intraday
 }: {
   holdings: Holding[];
   technicals: Record<string, StockTechnicals>;
   loading: boolean;
   onSelect: (ticker: string) => void;
   onAction: (type: DialogType, ticker: string) => void;
+  refreshKey?: number;
 }) {
   const buy = holdings.filter((h) => h.signal === "BUY" || h.signal === "STRONG_BUY").length;
   const hold = holdings.filter((h) => h.signal === "HOLD").length;
@@ -64,9 +65,9 @@ export function StocksTab({
             key={h.ticker}
             holding={h}
             tech={technicals[h.ticker]}
-            loadingTech={loading}
             onSelect={onSelect}
             onAction={onAction}
+            refreshKey={refreshKey} // [chart]
           />
         ))}
       </div>
@@ -77,18 +78,17 @@ export function StocksTab({
 function StockCard({
   holding: h,
   tech,
-  loadingTech,
   onSelect,
   onAction,
+  refreshKey = 0, // [chart]
 }: {
   holding: Holding;
   tech?: StockTechnicals;
-  loadingTech: boolean;
   onSelect: (ticker: string) => void;
   onAction: (type: DialogType, ticker: string) => void;
+  refreshKey?: number;
 }) {
   const [open, setOpen] = React.useState(false);
-  const sparkData = tech?.sparkline ?? [];
 
   return (
     <Card className="overflow-hidden">
@@ -149,14 +149,9 @@ function StockCard({
           </div>
         </div>
 
+        {/* [chart] Per-stock intraday 1D live chart — priority placement. */}
         <div className="my-3">
-          {sparkData.length >= 2 ? (
-            <Sparkline data={sparkData} height={48} />
-          ) : loadingTech ? (
-            <Skeleton className="h-12 w-full" />
-          ) : (
-            <div className="h-12" />
-          )}
+          <IntradayChart symbol={h.ticker} height={132} refreshKey={refreshKey} compact />
         </div>
 
         <div className="grid grid-cols-3 gap-2 text-center">

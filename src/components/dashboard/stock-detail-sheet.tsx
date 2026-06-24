@@ -22,6 +22,8 @@ import { MetricGrid } from "@/components/dashboard/metric-grid";
 import { AnnouncementsTimeline } from "@/components/dashboard/announcements-timeline";
 import { VerdictPanel } from "@/components/dashboard/verdict-panel";
 import { ExecutiveSentiment } from "@/components/dashboard/executive-sentiment";
+// [chart] per-stock intraday 1D live chart
+import { IntradayChart } from "@/components/dashboard/intraday-chart";
 import type { Holding } from "@/lib/types";
 
 // [factors] colour a cross-sectional percentile (higher = stronger).
@@ -36,16 +38,18 @@ export function StockDetailSheet({
   holding,
   open,
   onOpenChange,
+  refreshKey = 0, // [chart] re-pull intraday on dashboard refresh
 }: {
   holding: Holding | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  refreshKey?: number;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="overflow-y-auto p-0">
         {holding ? (
-          <DetailBody holding={holding} />
+          <DetailBody holding={holding} refreshKey={refreshKey} />
         ) : (
           <div className="p-6 text-sm text-muted-foreground">
             Select a holding to view detail.
@@ -77,7 +81,7 @@ function Stat({
   );
 }
 
-function DetailBody({ holding: h }: { holding: Holding }) {
+function DetailBody({ holding: h, refreshKey = 0 }: { holding: Holding; refreshKey?: number }) {
   // shares === 0 marks a research view (watchlist name, not held).
   const held = h.shares > 0;
   return (
@@ -175,6 +179,12 @@ function DetailBody({ holding: h }: { holding: Holding }) {
       </SheetHeader>
 
       <div className="space-y-6 p-6">
+        {/* [chart] Per-stock intraday 1D live chart — prominent placement. */}
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold">Today (1D)</h3>
+          <IntradayChart symbol={h.ticker} height={180} refreshKey={refreshKey} />
+        </section>
+
         <VerdictPanel verdict={h.verdict} />
 
         <ExecutiveSentiment exec={h.verdict.execCommentary} />
