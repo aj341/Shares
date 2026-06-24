@@ -708,6 +708,10 @@ export type WatchlistResponse = {
   bestEntry: string[];
   asOf: string;
   source: "mboum" | "none";
+  // [wlfilter] Full ranked set: EVERY scanned, non-held universe name (not the
+  // bucketed `items` suggestions subset). Powers the sector/industry filter and
+  // the full redistribution candidate path. Empty when no scan has run.
+  all: WatchlistItem[];
 };
 
 // ---------------------------------------------------------------------------

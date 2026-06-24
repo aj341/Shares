@@ -151,7 +151,11 @@ export async function buildNewPositionCandidates(
   // entry timing, not quality, so it must not gate eligibility (a BUY-grade
   // name in the "neutral" bucket still competes). Redistribution applies the
   // bar; all scores are surfaced via candidatesConsidered.
-  const base = (watch?.items ?? []).filter((i) => i.price != null && i.price > 0);
+  // [wlfilter] Use the FULL ranked set (every scanned, non-held universe name)
+  // so all 104 names compete + appear in candidatesConsidered — not just the 8
+  // bucketed suggestions. Falls back to `items` when no scan has run.
+  const source = watch?.all?.length ? watch.all : watch?.items ?? [];
+  const base = source.filter((i) => i.price != null && i.price > 0);
   const sectors = portfolio ? sectorWeights(portfolio) : new Map<string, number>();
   const prior = await priorScores(base.map((i) => i.ticker));
 

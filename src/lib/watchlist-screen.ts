@@ -363,3 +363,10 @@ export async function getTopRanked(n: number): Promise<WatchlistRanking[]> {
     .filter((r) => !held.has(exclusionKey(r.ticker)))
     .slice(0, n);
 }
+
+// [wlfilter] Full ranked set (every scanned, non-held name) with NO top-N
+// slice — the complete coverage path used by the watchlist's "all" list and
+// the redistribution candidate path so all scanned universe names are visible.
+export async function getAllRanked(): Promise<WatchlistRanking[]> {
+  return getTopRanked(Number.MAX_SAFE_INTEGER);
+}

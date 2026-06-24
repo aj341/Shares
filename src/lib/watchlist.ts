@@ -17,7 +17,8 @@ import { getCalibrationCached, convictionForSignal } from "@/lib/calibration";
 import { getEarningsSignals } from "@/lib/earnings-signals";
 // [insider] Additive insider cluster-buy overlay (never alters bucket/score).
 import { getInsiderOverlays, type InsiderOverlay } from "@/lib/insider";
-import { getTopRanked, type WatchlistRanking } from "@/lib/watchlist-screen";
+// [wlfilter] getAllRanked = full ranked set for the coverage / filter path.
+import { getTopRanked, getAllRanked, type WatchlistRanking } from "@/lib/watchlist-screen";
 import { universeEntryFor } from "@/lib/universe";
 import type {
   Signal,
@@ -299,6 +300,106 @@ async function resolveCandidates(): Promise<Candidate[]> {
   return CANDIDATES;
 }
 
+// [wlfilter] -------------------------------------------------------------
+// FULL-COVERAGE ranked list. The curated `items` above are an 8-name bucketed
+// "suggestions" view; this builds a complete WatchlistItem for EVERY scanned,
+// non-held universe name so /api/watchlist exposes the whole ranked set and
+// the redistribution candidate path sees all of them (root cause of the old
+// "only ~8 names" cap: resolveCandidates() returned just CANDIDATES.length and
+// nothing else was ever engine-scored).
+//
+// Enrichment here is the lighter, resilient path: engine score + technicals +
+// bucket + ranking-derived editorial, with bounded concurrency and per-name
+// failure tolerance. The heavy cross-section / earnings / insider overlays stay
+// on the curated `items` (their fields are optional + null-safe on the type).
+
+/** Bounded-concurrency map — caps simultaneous Mboum work to respect limits. */
+async function mapWithConcurrency<T, R>(
+  xs: T[],
+  limit: number,
+  fn: (x: T, i: number) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(xs.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, xs.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= xs.length) return;
+      out[i] = await fn(xs[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+/** Enrich ONE ranked name into a complete (lighter) WatchlistItem. Null-safe;
+ *  never throws — returns a degraded-but-valid item on data failure. */
+async function enrichRanked(
+  c: Candidate,
+  ranking: WatchlistRanking | null
+): Promise<WatchlistItem> {
+  const [tech, actions, engine] = await Promise.all([
+    buildStockTechnicals(c.ticker).catch(() => null),
+    getUpgradeDowngrade(c.ticker).catch(() => []),
+    scoreOnEngine(c.ticker),
+  ]);
+  const price = tech?.sparkline.at(-1) ?? null;
+  const rsi = tech?.rsi ?? ranking?.rsi14 ?? null;
+  const trendUp = tech?.priceVsMa50 === "above" || tech?.priceVsMa20 === "above";
+  const buyRated = engine?.signal === "BUY" || engine?.signal === "STRONG_BUY";
+  const { bucket, label } = bucketFor(rsi, { trendUp, buyRated });
+  return {
+    engineScore: engine?.score ?? null,
+    engineSignal: engine?.signal ?? null,
+    ticker: c.ticker,
+    companyName: c.companyName,
+    sector: sectorFor(c.ticker),
+    subSectors: c.subSectors,
+    price,
+    upsidePct: tech?.targetUpsidePct ?? null,
+    rsi,
+    targetMean: tech?.targetMean ?? null,
+    peRatio: tech?.peRatio ?? null,
+    bullishPct: tech?.bullishPct ?? null,
+    analystRating: ratingLabel(tech?.bullishPct ?? null),
+    week52High: tech?.week52High ?? null,
+    week52Low: tech?.week52Low ?? null,
+    bucket,
+    signalLabel: label,
+    whyItFits: c.whyItFits,
+    bullCase: c.bullCase,
+    keyRisk: c.keyRisk,
+    technicalSignal: technicalSignal(bucket, rsi),
+    recentAnalystActions: actions,
+  };
+}
+
+/** Full ranked set as WatchlistItems. Reuses already-enriched curated `items`
+ *  where tickers overlap (avoids duplicate Mboum work). Bounded concurrency. */
+async function buildFullRanked(curated: WatchlistItem[]): Promise<WatchlistItem[]> {
+  let pool: WatchlistRanking[] = [];
+  try {
+    pool = await getAllRanked();
+  } catch (err) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[wlfilter] full ranked unavailable:", (err as Error).message);
+    }
+  }
+  if (pool.length === 0) {
+    // No scan yet — the curated list IS the full available set.
+    return curated;
+  }
+  const byTicker = new Map(curated.map((i) => [i.ticker, i] as const));
+  const enriched = await mapWithConcurrency(pool, 5, async (r) => {
+    const existing = byTicker.get(r.ticker);
+    if (existing) return existing;
+    return enrichRanked(candidateFromRanking(r), r);
+  });
+  // Preserve composite-rank order (pool is already composite-desc).
+  return enriched;
+}
+// [wlfilter] end ----------------------------------------------------------
+
 // 15-min cache so /api/watchlist and /api/alerts (entry-trigger check) reuse
 // one computation rather than re-fetching 8 tickers of Mboum data each call.
 let WL_CACHE: { data: WatchlistResponse; ts: number } | null = null;
@@ -315,6 +416,7 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
       bestEntry: [],
       asOf,
       source: "none",
+      all: [], // [wlfilter]
     };
   }
 
@@ -444,6 +546,11 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
     ? Math.round((upsides.reduce((s, u) => s + u, 0) / upsides.length) * 10) / 10
     : null;
 
+  // [wlfilter] Build the FULL ranked set (every scanned, non-held name) for the
+  // sector filter + redistribution coverage. Reuses the curated items above
+  // where tickers overlap. Null-safe: failures degrade to the curated list.
+  const all = await buildFullRanked(items).catch(() => items);
+
   const result: WatchlistResponse = {
     items,
     suggestionsCount: items.length,
@@ -451,6 +558,7 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
     bestEntry: items.filter((i) => i.bucket === "best_entry").map((i) => i.ticker),
     asOf,
     source: "mboum",
+    all, // [wlfilter] complete ranked list
   };
   WL_CACHE = { data: result, ts: Date.now() };
   return result;
