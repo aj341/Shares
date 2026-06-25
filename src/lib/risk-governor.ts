@@ -18,7 +18,10 @@ export type RiskStatus = {
   asOf: string;
 };
 
-const TARGET_VOL = 0.15; // 15% annualised target — the "comfort" level
+// Target = the book's OWN recent-normal volatility, not an arbitrary number.
+// A high-octane growth book naturally runs hot; the governor flags when risk
+// rises ABOVE that personal norm, and the exposure suggestion dials back toward
+// it — never toward some generic target that would nag a daily trader forever.
 
 function annualisedVol(rets: number[]): number | null {
   if (rets.length < 2) return null;
@@ -61,9 +64,10 @@ export async function getRiskStatus(): Promise<RiskStatus> {
   const drawdownPct = peak > 0 ? ((peak - cur) / peak) * 100 : null;
   const dayPnlPct = perf.pnlByPeriod?.daily?.pct ?? null;
 
+  // Vol-target vs your OWN baseline: at-normal => ~100% (stay), spiking => trim.
   const suggestedExposurePct =
-    realizedVol && realizedVol > 0
-      ? Math.round(Math.max(0, Math.min(1.2, TARGET_VOL / realizedVol)) * 100)
+    realizedVol && realizedVol > 0 && baselineVol
+      ? Math.round(Math.max(0, Math.min(1.2, baselineVol / realizedVol)) * 100)
       : null;
 
   const ratio =
@@ -73,24 +77,28 @@ export async function getRiskStatus(): Promise<RiskStatus> {
   if (ratio >= 1.5 || dd >= 10) level = "high";
   else if (ratio >= 1.15 || dd >= 5) level = "elevated";
 
-  const tgt = Math.round(TARGET_VOL * 100);
+  const now = realizedVol != null ? Math.round(realizedVol * 100) : null;
+  const usual = baselineVol != null ? Math.round(baselineVol * 100) : null;
+  const swings = now != null ? `~${now}%` : "your recent swings";
+  const norm = usual != null ? `your usual ~${usual}%` : "your norm";
   let plainNote: string;
   if (level === "high") {
     plainNote =
-      `Your book is swinging hard right now` +
-      (dd >= 10 ? ` and sits ${Math.round(dd)}% below its recent high` : "") +
-      ` — you're carrying more risk than your ${tgt}% comfort level` +
+      `Your book is unusually volatile right now` +
+      (dd >= 10 ? ` and is ${Math.round(dd)}% below its recent high` : "") +
+      ` — swings (${swings}) are well above ${norm}` +
       (suggestedExposurePct != null
-        ? `; easing toward ~${suggestedExposurePct}% invested would bring it back in line.`
+        ? `. Easing toward ~${suggestedExposurePct}% invested would dial risk back to your normal.`
         : ".");
   } else if (level === "elevated") {
     plainNote =
-      `A bit choppier than usual — risk is running a little above your ${tgt}% comfort level` +
+      `Running hotter than usual — swings (${swings}) are above ${norm}` +
+      (dd >= 5 ? `, and you're ${Math.round(dd)}% off the recent high` : "") +
       (suggestedExposurePct != null
-        ? `; ~${suggestedExposurePct}% invested would match it.`
+        ? `. Trimming toward ~${suggestedExposurePct}% invested would bring it back to normal.`
         : ".");
   } else {
-    plainNote = `Calm — your book's swings are within your usual ${tgt}% comfort level. Nothing to act on.`;
+    plainNote = `Risk is about normal — swings (${swings}) are in line with ${norm}. Nothing unusual to act on.`;
   }
 
   return {
