@@ -277,6 +277,7 @@ export function DashboardShell() {
             onSelect={handleSelect}
             onWatchSelect={handleWatchSelect}
             onAction={openDialog}
+            onRefresh={refreshAll}
           />
         )}
       </main>
@@ -402,6 +403,7 @@ function ReadyView({
   onSelect,
   onWatchSelect,
   onAction,
+  onRefresh, // [refresh] re-pull dashboard data after a manual watchlist re-scan
 }: {
   data: DashboardResponse;
   perf: PerfState;
@@ -412,6 +414,7 @@ function ReadyView({
   onSelect: (ticker: string) => void;
   onWatchSelect: (ticker: string) => void;
   onAction: (type: DialogType, ticker?: string) => void;
+  onRefresh: () => void; // [refresh]
 }) {
   const { portfolio, redistribution, disagreement } = data;
   const insights = computeInsights(portfolio);
@@ -522,6 +525,7 @@ function ReadyView({
             redistribution={redistribution}
             holdings={portfolio.holdings}
             onSelect={onWatchSelect}
+            onRefresh={onRefresh}
           />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

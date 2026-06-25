@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runWatchlistScan } from "@/lib/watchlist-screen";
+// [refresh] getAllRanked surfaces the persisted scanned_at; clearWatchlistCache
+// busts the 15-min watchlist cache so the next read sees the fresh scores.
+import { runWatchlistScan, getAllRanked } from "@/lib/watchlist-screen";
+import { clearWatchlistCache } from "@/lib/watchlist";
 import type { ApiError } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +35,43 @@ export async function GET(req: NextRequest) {
   try {
     const { scanned, ranked } = await runWatchlistScan();
     return NextResponse.json({ ok: true, scanned, ranked });
+  } catch (err) {
+    const body: ApiError = {
+      error: "Failed to run watchlist scan",
+      detail: (err as Error).message,
+    };
+    return NextResponse.json(body, { status: 500 });
+  }
+}
+
+
+/**
+ * [refresh] Client-callable manual re-scan (same-origin user action, NO
+ * CRON_SECRET — the secret only guards the public GET cron). Runs the SAME
+ * runWatchlistScan() the cron does, busts the watchlist cache so fresh scores
+ * are read immediately, and returns the latest persisted scan time so the UI
+ * can update its "Scores as of" label without a second round-trip.
+ *
+ * The scan scores ~104 names (~2-3 min), so it needs the full server budget
+ * (maxDuration = 300, set above).
+ */
+export async function POST() {
+  try {
+    const { ranked } = await runWatchlistScan();
+    // [refresh] Bust the 15-min watchlist cache so the very next dashboard read
+    // reflects the fresh scores rather than serving the stale pre-scan copy.
+    clearWatchlistCache();
+    // [refresh] Read back the persisted scan time (null-safe). Fall back to now
+    // when no rankings are available (e.g. Mboum unconfigured -> empty scan).
+    let scannedAt: string | null = null;
+    try {
+      const ranks = await getAllRanked();
+      scannedAt = ranks[0]?.scannedAt ?? null;
+    } catch {
+      /* best-effort — the scan still succeeded */
+    }
+    if (!scannedAt) scannedAt = new Date().toISOString();
+    return NextResponse.json({ ok: true, ranked, scannedAt });
   } catch (err) {
     const body: ApiError = {
       error: "Failed to run watchlist scan",

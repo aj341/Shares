@@ -10,6 +10,8 @@ import {
 } from "@/lib/redistribution";
 import { getMarketRegime } from "@/lib/regime";
 import { buildWatchlist } from "@/lib/watchlist";
+// [refresh] persisted watchlist scan time -> redistribution freshness label.
+import { getAllRanked } from "@/lib/watchlist-screen";
 // [top3] AI "Top 3 Moves Today" — additive policy engine over existing signals.
 import { buildTopMoves, type Top3SignalInputs, type TopMovesResponse } from "@/lib/top-moves";
 // [top3][integration] sibling hard-catalyst feed -> Top3 `news` slot (null-safe).
@@ -201,6 +203,17 @@ export async function buildDashboard(): Promise<DashboardResponse> {
     redistributionUsd,
     portfolioUsd.fxUsdToAud
   );
+  // [refresh] Surface the latest watchlist scan time (the freshness of the
+  // screened candidate scores) on the redistribution summary. FX-invariant, so
+  // it is fine to set after the AUD conversion. Null-safe — left undefined when
+  // no scan has run yet (getAllRanked() returns []).
+  try {
+    const ranks = await getAllRanked();
+    const scoresAsOf = ranks[0]?.scannedAt;
+    if (scoresAsOf) redistribution.summary.scoresAsOf = scoresAsOf;
+  } catch {
+    /* no rankings available — leave scoresAsOf undefined */
+  }
   const disagreement = buildDisagreement(portfolio);
 
   return {

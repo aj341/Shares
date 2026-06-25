@@ -1,10 +1,15 @@
 "use client";
 
-import { ArrowDownToLine, ArrowUpFromLine, Scissors, Target } from "lucide-react";
+// [refresh] React state for the manual re-scan busy state; RefreshCw icon +
+// Button for the control; rescanWatchlist fetcher hits the new POST endpoint.
+import * as React from "react";
+import { ArrowDownToLine, ArrowUpFromLine, RefreshCw, Scissors, Target } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatPct, formatUsd } from "@/lib/utils";
 import { signedTextClass } from "@/lib/ui";
+import { rescanWatchlist } from "@/lib/client";
 import type { Holding, RedistributionResponse } from "@/lib/types";
 
 /**
@@ -17,11 +22,16 @@ export function RebalancingCards({
   redistribution,
   holdings,
   onSelect,
+  onRefresh,
 }: {
   redistribution: RedistributionResponse;
   holdings: Holding[];
   /** Open the full analysis drawer for a ticker (held or research). */
   onSelect?: (ticker: string) => void;
+  // [refresh] Re-fetch dashboard data after a manual re-scan completes (the
+  // shell threads its refreshAll here). Optional — the button is hidden when
+  // absent so the card stays usable in read-only contexts.
+  onRefresh?: () => void;
 }) {
   const { recommendations, summary } = redistribution;
   const sells = recommendations.filter((r) => r.action === "SELL" || r.action === "TRIM");
@@ -29,9 +39,59 @@ export function RebalancingCards({
   const totalInvested = buys.reduce((s, b) => s + b.estimatedProceedsOrCost, 0) || 1;
   const sharesOf = (t: string) => holdings.find((h) => h.ticker === t)?.shares ?? 0;
 
+  // [refresh] Freshness label + manual re-scan control. The label reads the
+  // persisted watchlist scan time (summary.scoresAsOf); "\u2014" when absent.
+  // The button kicks the ~2-3 min POST re-scan, shows a busy state, then calls
+  // onRefresh to re-pull the dashboard (and thus the new scoresAsOf).
+  const [rescanning, setRescanning] = React.useState(false);
+  const scoresAsOfLabel = summary.scoresAsOf
+    ? new Date(summary.scoresAsOf).toLocaleString("en-AU", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "\u2014";
+  const handleRescan = React.useCallback(async () => {
+    if (rescanning) return;
+    setRescanning(true);
+    try {
+      await rescanWatchlist();
+      onRefresh?.();
+    } catch {
+      /* surface nothing intrusive — the stale view stays usable */
+    } finally {
+      setRescanning(false);
+    }
+  }, [rescanning, onRefresh]);
+
+  // [refresh] Reusable freshness row: "Scores as of <time>" + Refresh button.
+  // Mobile-first — flex-wrap + min-w-0 keeps it from overflowing at ~360px.
+  const freshnessBar = (
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+      <p className="min-w-0 text-[11px] text-muted-foreground">
+        Scores as of <span className="font-medium">{scoresAsOfLabel}</span>
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+        onClick={handleRescan}
+        disabled={rescanning}
+        aria-busy={rescanning}
+        title="Re-scan the watchlist universe (~2-3 min)"
+      >
+        <RefreshCw className={cn("h-3.5 w-3.5", rescanning && "animate-spin")} />
+        {rescanning ? "Re-scanning\u2026 ~2-3 min" : "Refresh"}
+      </Button>
+    </div>
+  );
+
   if (recommendations.length === 0) {
     return (
-      <Card>
+      <div className="space-y-3">
+        {freshnessBar}
+        <Card>
         <CardContent className="flex flex-col items-center gap-1 py-12 text-center">
           <Target className="h-6 w-6 text-muted-foreground" />
           <p className="text-sm font-medium">Portfolio is balanced</p>
@@ -39,7 +99,8 @@ export function RebalancingCards({
             No trades recommended — every position is within tolerance.
           </p>
         </CardContent>
-      </Card>
+        </Card>
+      </div>
     );
   }
 
@@ -49,6 +110,9 @@ export function RebalancingCards({
         <Target className="h-5 w-5 [color:hsl(var(--brand))]" />
         <h2 className="text-base font-semibold">Rebalancing Recommendations</h2>
       </div>
+
+      {/* [refresh] Freshness label + manual re-scan button at the top. */}
+      {freshnessBar}
 
       {/* Source: sells / trims */}
       {sells.map((s) => {

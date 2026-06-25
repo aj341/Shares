@@ -180,3 +180,17 @@ export async function syncIbkr(): Promise<SyncResult> {
   const res = await fetch("/api/portfolio/sync-ibkr", { method: "POST" });
   return (await res.json()) as SyncResult;
 }
+
+// [refresh] Manual watchlist re-scan (same-origin user action). Hits the POST
+// on the scan route (no CRON_SECRET required) which re-scores the ~104-name
+// universe (~2-3 min), busts the watchlist cache, and returns the fresh scan
+// time. Powers the Refresh button on the redistribution card.
+export type RescanResult = {
+  ok: boolean;
+  ranked: number;
+  scannedAt: string;
+};
+
+export async function rescanWatchlist(): Promise<RescanResult> {
+  return postJson<RescanResult>("/api/cron/watchlist-scan", {});
+}

@@ -364,6 +364,13 @@ function itemFromRankingDb(r: WatchlistRanking): WatchlistItem {
 let WL_CACHE: { data: WatchlistResponse; ts: number } | null = null;
 const WL_TTL_MS = 15 * 60 * 1000;
 
+// [refresh] Bust the watchlist cache so the very next buildWatchlist() re-reads
+// the freshly persisted scan scores instead of serving a stale (<=15-min) copy.
+// Called by the manual re-scan POST after runWatchlistScan() completes.
+export function clearWatchlistCache(): void {
+  WL_CACHE = null;
+}
+
 export async function buildWatchlist(): Promise<WatchlistResponse> {
   if (WL_CACHE && Date.now() - WL_CACHE.ts < WL_TTL_MS) return WL_CACHE.data;
   const asOf = new Date().toISOString();

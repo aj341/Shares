@@ -363,6 +363,10 @@ export type RedistributionSummary = {
    * when no candidate cleared the BUY bar.
    */
   candidatesConsidered?: Array<{ ticker: string; score: number | null }>;
+  // [refresh] ISO timestamp of the latest watchlist scan (watchlist_rankings
+  // .scanned_at) — the freshness of the screened new-position candidate scores.
+  // Optional / null-safe: absent until a scan has run.
+  scoresAsOf?: string;
   // [sizing] Concentration assessment of the BEFORE book + active limits.
   // Additive/optional — present only when the engine ran with concentration on.
   concentration?: ConcentrationAssessment;
