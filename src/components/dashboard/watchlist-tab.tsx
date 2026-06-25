@@ -39,6 +39,59 @@ const BUCKET_META: Record<
   },
 };
 
+// [groups] Consolidated display categories for the watchlist filter. Maps the
+// granular thematic sectors (sectorFor) onto the user's category set, in order.
+const GROUP_BY_SECTOR: Record<string, string> = {
+  "Materials / Mining": "Materials / Mining",
+  "Communication Services": "Communication Services",
+  "Gaming / Metaverse": "Communication Services",
+  "Ad Tech / AI": "Communication Services",
+  Energy: "Energy",
+  "Uranium / Nuclear": "Energy",
+  "Real Estate": "Real Estate",
+  Software: "AI/Software",
+  "AI / Social": "AI/Software",
+  "Cloud / AI": "AI/Software",
+  "Cloud Security": "AI/Software",
+  "Cloud Database": "AI/Software",
+  "AI Infrastructure": "AI Infrastructure",
+  Semiconductors: "AI Infrastructure",
+  Utilities: "Utilities",
+  "Aerospace & Defense": "Aerospace & Defence",
+  "AI / Defense": "Aerospace & Defence",
+  "Defense / SaaS": "Aerospace & Defence",
+  "Consumer Discretionary": "Consumer",
+  "Consumer / Retail": "Consumer",
+  "Consumer Tech": "Consumer",
+  Industrials: "Industrials",
+  Financials: "Financials",
+  Healthcare: "Healthcare",
+  "Internet / E-commerce": "Internet",
+  "Internet / Travel": "Internet",
+  "Internet / Media": "Internet",
+  "Cloud / E-commerce": "Internet",
+};
+const GROUP_ORDER = [
+  "Top 10",
+  "Materials / Mining",
+  "Communication Services",
+  "Energy",
+  "Real Estate",
+  "AI/Software",
+  "AI Infrastructure",
+  "Utilities",
+  "Aerospace & Defence",
+  "Consumer",
+  "Industrials",
+  "Financials",
+  "Healthcare",
+  "Internet",
+  "Other",
+];
+function groupForSector(s: string): string {
+  return GROUP_BY_SECTOR[s] ?? "Other";
+}
+
 export function WatchlistTab({
   data,
   loading,
@@ -79,35 +132,41 @@ export function WatchlistTab({
   // curated suggestions when the scan hasn't populated it.
   const allItems = data.all?.length ? data.all : data.items;
 
-  // [wlfilter] Sector list built from the full set via sectorFor() (already on
-  // item.sector). "All" first, then sectors by descending name count.
-  const sectorCounts = React.useMemo(() => {
+  // [groups] Counts per consolidated category from the full ranked set.
+  const groupCounts = React.useMemo(() => {
     const m = new Map<string, number>();
-    for (const it of allItems) m.set(it.sector, (m.get(it.sector) ?? 0) + 1);
-    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    for (const it of allItems) {
+      const g = groupForSector(it.sector);
+      m.set(g, (m.get(g) ?? 0) + 1);
+    }
+    return m;
   }, [allItems]);
 
-  const ALL = "All";
-  const [sector, setSector] = React.useState<string>(ALL);
-  // If a previously selected sector disappears (data refresh), snap back to All.
+  const TOP10 = "Top 10";
+  const [group, setGroup] = React.useState<string>(TOP10);
   React.useEffect(() => {
-    if (sector !== ALL && !sectorCounts.some(([name]) => name === sector)) {
-      setSector(ALL);
-    }
-  }, [sector, sectorCounts]);
+    if (group !== TOP10 && !(groupCounts.get(group) ?? 0)) setGroup(TOP10);
+  }, [group, groupCounts]);
 
-  // [wlfilter] Sector view: that sector's names from the FULL set, ranked by
-  // engine score desc (nulls last) — ALL of them, not the 8 suggestions.
-  const sectorItems = React.useMemo(() => {
-    if (sector === ALL) return [];
+  const byScore = (a: WatchlistItem, b: WatchlistItem) =>
+    (b.engineScore ?? -1) - (a.engineScore ?? -1);
+
+  // [groups] Top 10 = best 10 by engine score across the whole list.
+  const top10 = React.useMemo(
+    () => allItems.slice().sort(byScore).slice(0, 10),
+    [allItems]
+  );
+  // [groups] Category view = every name in that group, ranked by score.
+  const groupItems = React.useMemo(() => {
+    if (group === TOP10) return [];
     return allItems
-      .filter((i) => i.sector === sector)
+      .filter((i) => groupForSector(i.sector) === group)
       .slice()
-      .sort((a, b) => (b.engineScore ?? -1) - (a.engineScore ?? -1));
-  }, [sector, allItems]);
+      .sort(byScore);
+  }, [group, allItems]);
 
-  const showingSuggestions = sector === ALL;
-  const rows = showingSuggestions ? data.items : sectorItems;
+  const showingTop10 = group === TOP10;
+  const rows = showingTop10 ? top10 : groupItems;
 
   return (
     <div className="space-y-4">
@@ -125,8 +184,8 @@ export function WatchlistTab({
           </div>
           <div className="flex gap-6 text-right">
             <Summary
-              label={showingSuggestions ? "Suggestions" : "In Sector"}
-              value={String(showingSuggestions ? data.suggestionsCount : sectorItems.length)}
+              label={showingTop10 ? "Top 10" : "In Category"}
+              value={String(showingTop10 ? top10.length : groupItems.length)}
               className="[color:hsl(var(--brand))]"
             />
             <Summary
@@ -147,23 +206,25 @@ export function WatchlistTab({
         aria-label="Filter watchlist by sector"
       >
         <SectorPill
-          label="All"
-          count={data.suggestionsCount}
-          active={sector === ALL}
-          onClick={() => setSector(ALL)}
+          label="Top 10"
+          count={Math.min(10, allItems.length)}
+          active={group === TOP10}
+          onClick={() => setGroup(TOP10)}
         />
-        {sectorCounts.map(([name, count]) => (
+        {GROUP_ORDER.filter(
+          (g) => g !== TOP10 && (groupCounts.get(g) ?? 0) > 0
+        ).map((g) => (
           <SectorPill
-            key={name}
-            label={name}
-            count={count}
-            active={sector === name}
-            onClick={() => setSector(name)}
+            key={g}
+            label={g}
+            count={groupCounts.get(g) ?? 0}
+            active={group === g}
+            onClick={() => setGroup(g)}
           />
         ))}
       </div>
 
-      {showingSuggestions ? (
+      {showingTop10 ? (
         /* Bucket strip (suggestions view only) */
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           {buckets.map((b) => (
@@ -182,8 +243,8 @@ export function WatchlistTab({
         </div>
       ) : (
         <p className="px-1 text-xs text-muted-foreground">
-          <span className="font-semibold text-foreground">{sector}</span> — all{" "}
-          {sectorItems.length} screened name{sectorItems.length === 1 ? "" : "s"}, ranked by
+          <span className="font-semibold text-foreground">{group}</span> — all{" "}
+          {groupItems.length} screened name{groupItems.length === 1 ? "" : "s"}, ranked by
           engine score.
         </p>
       )}
@@ -197,7 +258,7 @@ export function WatchlistTab({
         ) : (
           <Card>
             <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              No screened names in {sector} yet.
+              No screened names in {group} yet.
             </CardContent>
           </Card>
         )}
