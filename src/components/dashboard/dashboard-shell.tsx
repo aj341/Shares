@@ -43,7 +43,6 @@ import { SignalPerformance } from "@/components/dashboard/signal-performance";
 import { ConvictionCalibration } from "@/components/dashboard/conviction-calibration";
 // [wfa] Additive walk-forward (rolling OOS) validation + display-only order tickets.
 import { WalkForwardPanel } from "@/components/dashboard/walk-forward";
-import { OrderTicketsPanel } from "@/components/dashboard/order-tickets";
 import { EventsRadar } from "@/components/dashboard/events-radar";
 // [earnings] Additive earnings catalyst calendar panel.
 import { EarningsCalendar } from "@/components/dashboard/earnings-calendar";
@@ -554,7 +553,6 @@ function ReadyView({
 
           {/* [wfa] Walk-forward OOS validation + display-only order tickets. */}
           <WalkForwardPanel />
-          <OrderTicketsPanel />
 
           <section className="space-y-3">
             <SectionTitle

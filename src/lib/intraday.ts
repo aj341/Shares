@@ -56,6 +56,9 @@ export type IntradayOverlay = {
   interval: string;
   /** Number of intraday bars used. */
   bars: number;
+  /** Today's session high / low (from intraday bars) — key intraday levels. */
+  dayHigh: number | null;
+  dayLow: number | null;
 };
 
 type Bar = {
@@ -121,6 +124,8 @@ function nullOverlay(interval: string): IntradayOverlay {
     realizedVol: null,
     interval,
     bars: 0,
+    dayHigh: null,
+    dayLow: null,
   };
 }
 
@@ -406,6 +411,9 @@ export async function getIntradayOverlay(
     realizedVol: round(realizedVol, 4),
     interval,
     bars: session.length,
+    // [intraday-hl] today's session high/low — direct intraday reference levels.
+    dayHigh: round(Math.max(...session.map((b) => b.h))),
+    dayLow: round(Math.min(...session.map((b) => b.l))),
   };
 }
 

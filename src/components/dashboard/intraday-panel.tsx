@@ -28,6 +28,8 @@ type Overlay = {
   realizedVol: number | null;
   interval: string;
   bars: number;
+  dayHigh: number | null;
+  dayLow: number | null;
 };
 
 type IntradayResponse = {
@@ -102,7 +104,21 @@ export function IntradayPanel() {
       .catch(() => setFailed(true));
   }, []);
 
-  if (failed) return null;
+  if (failed)
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Activity className="h-4 w-4" /> Intraday technicals
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+            Intraday levels appear once the US market has live bars (during/after the session).
+          </p>
+        </CardContent>
+      </Card>
+    );
 
   if (!data) {
     return (
@@ -150,6 +166,7 @@ export function IntradayPanel() {
                   <th className="px-3 py-2 font-medium">vs VWAP</th>
                   <th className="px-3 py-2 font-medium">ATR%</th>
                   <th className="px-3 py-2 font-medium">Stop</th>
+                  <th className="px-3 py-2 font-medium">Day H / L</th>
                   <th className="px-3 py-2 font-medium">Bands (L / U)</th>
                 </tr>
               </thead>
@@ -199,6 +216,11 @@ export function IntradayPanel() {
                       </td>
                       <td className="px-3 py-2 font-mono-nums text-muted-foreground">
                         {px(o.suggestedStop)}
+                      </td>
+                      <td className="px-3 py-2 font-mono-nums text-[11px]">
+                        <span className="[color:hsl(var(--positive))]">{px(o.dayHigh)}</span>
+                        <span className="text-muted-foreground"> / </span>
+                        <span className="[color:hsl(var(--negative))]">{px(o.dayLow)}</span>
                       </td>
                       <td className="px-3 py-2 font-mono-nums text-[11px] text-muted-foreground">
                         {o.bands
