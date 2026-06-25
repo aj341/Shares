@@ -161,13 +161,28 @@ function heuristicBrief(ctx: Ctx[], regime: MarketRegime | null): BriefCore {
   const nearest = ctx
     .filter((c) => c.nextEarningsInDays != null)
     .sort((a, b) => (a.nextEarningsInDays! - b.nextEarningsInDays!))[0];
+  // Plain-English fallback (used when the LLM is unavailable). No jargon.
+  const moodWord =
+    regime == null
+      ? null
+      : `${(regime.qqqVs200dmaPct ?? 0) >= 0 ? "The market's been heading up" : "The market's been under pressure"}${
+          (regime.volPercentile ?? 0) >= 70 ? " but it's very jumpy right now" : (regime.volPercentile ?? 0) >= 40 ? " and a bit choppy" : " and fairly calm"
+        }.`;
+  const bookWord =
+    stance === "risk-off"
+      ? "Your holdings are looking shaky today"
+      : stance === "mixed"
+      ? "Your holdings are a mixed bag today"
+      : stance === "risk-on"
+      ? "Your holdings are looking healthy today"
+      : "Your holdings look steady today";
   const summary = [
-    regime ? `${regime.label}.` : "",
-    `Signals lean ${stance.replace("-", " ")} (${buys} buy / ${sells} reduce across ${ctx.length} holdings).`,
+    moodWord ?? "",
+    `${bookWord} (${buys} look strong, ${sells} look weak out of ${ctx.length}).`,
     nearest
-      ? `Next earnings: ${nearest.holding.ticker} in ${nearest.nextEarningsInDays} day${nearest.nextEarningsInDays === 1 ? "" : "s"}.`
-      : "No earnings in the next two weeks.",
-    watchItems.length ? "See watch items below." : "Nothing flagged as urgent.",
+      ? `Heads-up: ${nearest.holding.ticker} reports earnings in ${nearest.nextEarningsInDays} day${nearest.nextEarningsInDays === 1 ? "" : "s"}.`
+      : "No earnings coming up in the next two weeks.",
+    watchItems.length ? "A few names to keep an eye on below." : "Nothing urgent to watch.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -204,18 +219,24 @@ const TOOL_SCHEMA = {
   required: ["stance", "headline", "summary", "watchItems"],
 } as const;
 
-const SYSTEM = `You are an equity analyst assistant writing a concise pre-market brief for a
-personal portfolio dashboard. You are given structured data the app already holds for each
-holding (signal, score, unrealised P&L %, top recent news + impact, analyst-revision direction,
-days until next earnings).
+const SYSTEM = `You write a short, plain-English "start my day" game-plan for a busy trader who is
+NOT a finance expert. Think: a smart friend texting them what matters before the trading day —
+clear, calm, concrete. You are given structured data the app holds for each holding (signal,
+score, unrealised P&L %, top recent news + impact, analyst-revision direction, days until next
+earnings).
 
 Rules:
-- Write a tight "what to watch today" brief, not a generic market summary.
-- Prioritise: imminent earnings, high-impact news, analyst revisions, and signal extremes.
-- watchItems: one per holding that genuinely warrants attention; set urgency honestly.
-- Be specific and ground every claim in the provided data. Do NOT invent figures or news.
-- Do not give buy/sell instructions or predict prices — describe what to monitor and why.
-- Keep the summary to 2–4 sentences.`;
+- PLAIN ENGLISH ONLY. No jargon. Never use terms like "z-score", "percentile", "200-day MA",
+  "VWAP", "ATR", "breadth", "composite", "risk-on/off". Translate everything into everyday words
+  (e.g. say "the market's been jumpy" not "volatility is in the 90th percentile").
+- Lead the summary with ONE bottom-line sentence: is today calm or busy, and why.
+- Then cover, briefly and only if relevant: what's moving in your stocks overnight, any news that
+  matters, and earnings coming up. Frame it as a plan ("keep an eye on X because Y").
+- watchItems: one per holding that genuinely needs attention; set urgency honestly; the note must
+  be a plain sentence a non-expert instantly understands.
+- Ground every claim in the data provided. Do NOT invent figures or news. Do NOT tell them to buy
+  or sell or predict prices — just say what to watch and why.
+- Keep the summary to 2–4 short sentences.`;
 
 async function synthesizeWithLlm(
   ctx: Ctx[],
@@ -235,8 +256,21 @@ async function synthesizeWithLlm(
     return `- ${h.ticker} (${h.companyName}): signal ${h.signal}, score ${h.score}, P&L ${h.unrealisedPnlPct.toFixed(1)}%; ${earn}; ${rev}; ${newsStr}`;
   });
 
+  // Plain-English market mood (no jargon) so the model leads with the right tone.
+  const trendWord = regime == null
+    ? null
+    : (regime.qqqVs200dmaPct ?? 0) >= 0
+    ? "trending up overall"
+    : "under pressure overall";
+  const jumpWord = regime == null
+    ? null
+    : (regime.volPercentile ?? 0) >= 70
+    ? "but very jumpy right now (unusually big daily swings)"
+    : (regime.volPercentile ?? 0) >= 40
+    ? "and moderately choppy"
+    : "and fairly calm";
   const regimeLine = regime
-    ? `MARKET REGIME: ${regime.label} (QQQ ${regime.qqqVs200dmaPct}% vs 200dma, vol percentile ${regime.volPercentile}). Let the regime LEAD the stance — the holdings' own signals are correlated and lag in drawdowns.\n\n`
+    ? `MARKET MOOD (plain English, lead with this): the broad US market is ${trendWord} ${jumpWord}. Set the day's tone from this first, before individual stocks.\n\n`
     : "";
   const prompt = `${regimeLine}Today's holdings snapshot:\n${lines.join("\n")}\n\nReturn the brief via the return_brief tool.`;
 

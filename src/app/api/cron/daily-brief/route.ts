@@ -108,7 +108,7 @@ export async function GET(req: NextRequest) {
 
     const lines: string[] = [];
     lines.push(
-      `📋 <b>Evening Brief</b> — ${STANCE_EMOJI[brief.stance] ?? ""} ${esc(
+      `🌅 <b>Start My Day</b> — ${STANCE_EMOJI[brief.stance] ?? ""} ${esc(
         brief.stance.replace("-", " ").toUpperCase()
       )}`
     );
@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
 
     if (brief.watchItems.length > 0) {
       lines.push("");
-      lines.push("<b>Watch tonight:</b>");
+      lines.push("<b>Keep an eye on:</b>");
       for (const w of brief.watchItems.slice(0, 5)) {
         const flag = w.urgency === "high" ? "🔴" : w.urgency === "medium" ? "🟠" : "🔵";
         lines.push(`${flag} <b>${esc(w.ticker)}</b> — ${esc(w.note)}`);
@@ -128,7 +128,7 @@ export async function GET(req: NextRequest) {
     const recs = dash.tradeRecommendations;
     if (recs.length > 0) {
       lines.push("");
-      lines.push("<b>Current plan (engine, not advice):</b>");
+      lines.push("<b>What the engine is leaning toward (not advice):</b>");
       for (const r of recs.slice(0, 6)) {
         lines.push(
           `• ${esc(r.action)} ${esc(r.ticker)} ×${r.shares} @ $${r.estimatedPrice}`
