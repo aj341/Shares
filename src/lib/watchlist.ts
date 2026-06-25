@@ -21,7 +21,6 @@ import { getInsiderOverlays, type InsiderOverlay } from "@/lib/insider";
 import { getTopRanked, getAllRanked, type WatchlistRanking } from "@/lib/watchlist-screen";
 import { universeEntryFor } from "@/lib/universe";
 import type {
-  Signal,
   WatchlistBucket,
   WatchlistItem,
   WatchlistResponse,
