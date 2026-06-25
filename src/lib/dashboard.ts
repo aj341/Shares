@@ -164,7 +164,7 @@ export async function buildNewPositionCandidates(
       // Doubling down on a sector that already dominates the book needs more
       // conviction than a diversifying add.
       const sectorPct = sectors.get(sectorFor(i.ticker)) ?? 0;
-      const minBar = sectorPct >= CONCENTRATED_SECTOR_PCT ? 75 : 70;
+      const minBar = sectorPct >= CONCENTRATED_SECTOR_PCT ? 80 : 76; // [bar] require >=76 to qualify as a buy (>=80 to double down on a hot sector)
       // Two-run confirmation: a fresh signal must also have scored >=67 on
       // the previous daily snapshot (no history = cold start, allowed).
       const prev = prior.get(i.ticker);
