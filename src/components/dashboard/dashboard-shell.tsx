@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   AlertTriangle,
-  LineChart,
+  DownloadCloud,
   RefreshCw,
   Plus,
   Wallet,
@@ -36,6 +36,8 @@ import { ArticleAnalyzer } from "@/components/dashboard/article-analyzer";
 import { AlertsBanner } from "@/components/dashboard/alerts-banner";
 // [regime] additive market-regime / breadth context banner
 import { RegimeBanner } from "@/components/dashboard/regime-banner";
+// [herostrip] mobile "how am I doing today" glance bar (top of dashboard)
+import HeroStrip from "@/components/dashboard/hero-strip";
 import { SignalPerformance } from "@/components/dashboard/signal-performance";
 // [calibration] Additive conviction-calibration panel.
 import { ConvictionCalibration } from "@/components/dashboard/conviction-calibration";
@@ -325,17 +327,10 @@ function Header({
     : null;
   return (
     <header className="safe-top sticky top-0 z-30 border-b border-border/60 bg-background/70 backdrop-blur-xl">
-      <div className="container mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-3 sm:gap-4 sm:px-4 lg:px-8">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="shrink-0 rounded-xl bg-gradient-to-br from-[hsl(var(--brand))] to-[hsl(var(--violet))] p-2 text-white shadow-lg shadow-[hsl(var(--brand))]/20">
-            <LineChart className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-sm font-bold leading-tight">AJ’s Portfolio</h1>
-            <p className="text-[11px] text-muted-foreground">Trading Dashboard</p>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+      <div className="container mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-2.5 sm:gap-4 sm:px-4 lg:px-8">
+        {/* [headerfix] Title/logo removed (was overlapping the status tags on
+            mobile). Status badges now own the left, legibly. */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="hidden sm:inline-flex"><LiveClock /></span>
           <span className="hidden sm:inline-flex"><ProvidersBadge /></span>
           {source ? (
@@ -347,8 +342,6 @@ function Header({
               {freshness ? ` · ${freshness}` : ""}
             </Badge>
           ) : null}
-          {/* [exthours] Market-session badge. Highlighted when a live pre/post
-              -market print is being surfaced instead of the prior close. */}
           {session && session !== "regular" ? (
             <Badge
               variant={extended ? "positive" : "neutral"}
@@ -366,25 +359,32 @@ function Header({
               {extended ? " · live" : ""}
             </Badge>
           ) : null}
+        </div>
+        {/* [headerfix] Two distinct actions: DownloadCloud+"IBKR" (pull broker
+            positions) vs RefreshCw+"Data" (refresh prices/scores). Different
+            icon AND label so they're unambiguous on mobile. */}
+        <div className="flex shrink-0 items-center gap-1.5">
           <Button
             variant="outline"
             size="sm"
             onClick={onSync}
             disabled={syncing}
-            aria-label="Sync IBKR"
+            aria-label="Sync positions & cash from IBKR"
             title="Pull the latest positions & cash from IBKR now"
           >
-            <RefreshCw className={syncing ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
-            <span className="ml-1 hidden text-xs sm:inline">{syncing ? "Syncing…" : "Sync IBKR"}</span>
+            <DownloadCloud className={syncing ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+            <span className="ml-1 text-xs">{syncing ? "…" : "IBKR"}</span>
           </Button>
           <Button
             variant="outline"
-            size="icon"
+            size="sm"
             onClick={onRefresh}
             disabled={loading}
-            aria-label="Refresh data"
+            aria-label="Refresh dashboard data"
+            title="Refresh prices, scores & analytics"
           >
-            <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+            <RefreshCw className={loading ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+            <span className="ml-1 text-xs">{loading ? "…" : "Data"}</span>
           </Button>
           <ThemeToggle />
         </div>
@@ -421,6 +421,8 @@ function ReadyView({
 
   return (
     <div className="space-y-6">
+      {/* [herostrip] "how am I doing today" glance bar — above market regime. */}
+      <HeroStrip portfolio={portfolio} pnlByPeriod={perf.data?.pnlByPeriod ?? null} />
       {/* [regime] market-regime / breadth context (additive, non-blocking) */}
       <RegimeBanner />
       {/* [scanner] high-impact macro events + intraday blackout flag */}
