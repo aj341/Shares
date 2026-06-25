@@ -232,8 +232,10 @@ async function scanTicker(
     sector: sectorFor(ticker),
     price: closes.length ? closes[closes.length - 1] : null,
     peRatio: keyStats?.peRatio ?? null,
-    week52High: keyStats?.week52High ?? null,
-    week52Low: keyStats?.week52Low ?? null,
+    // [headercards] Mboum key-stats omits 52wk for many names; fall back to the
+    // 13-month candle high/low we already have (same approach as live-metrics).
+    week52High: keyStats?.week52High ?? (closes.length ? round2(Math.max(...closes)) : null),
+    week52Low: keyStats?.week52Low ?? (closes.length ? round2(Math.min(...closes)) : null),
     bullishPct,
   };
 }
