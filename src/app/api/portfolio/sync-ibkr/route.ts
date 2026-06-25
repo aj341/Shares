@@ -33,7 +33,9 @@ const RECENT_MANUAL_MS = 20 * 60 * 60 * 1000;
  * reconciles its Flex feed (then the next sync tracks Flex again).
  */
 const COST_BASIS_OVERRIDES: Record<string, number> = {
-  GOOG: 358.66,
+  // [reconcile 2026-06-25] GOOG override removed after the redistribution trades —
+  // the real avg is now ~348.66 and Flex should track it. Re-add only if Flex
+  // disagrees with the IBKR app again after a corporate action.
 };
 
 /**
