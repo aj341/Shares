@@ -339,7 +339,7 @@ function itemFromRankingDb(r: WatchlistRanking): WatchlistItem {
     companyName: r.companyName ?? c.companyName,
     sector: r.sector ?? sectorFor(r.ticker),
     subSectors: c.subSectors,
-    price: null, // DB-cheap path carries no live price (curated items do).
+    price: r.price, // [scanscore] persisted last close -> name competes as a buy candidate
     upsidePct: null,
     rsi: r.rsi14,
     targetMean: null,

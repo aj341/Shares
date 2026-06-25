@@ -48,6 +48,7 @@ export type WatchlistRanking = {
   /** Company name / sector persisted in the scan (cheap reads avoid lookups). */
   companyName: string | null;
   sector: string | null;
+  price: number | null; // [scanscore] last close (candidate sizing)
   scannedAt: string; // ISO timestamp
   /** 1-based rank by composite desc within the scanned set. */
   rank: number;
@@ -86,6 +87,7 @@ type RawStats = {
   engineSignal: Signal | null;
   companyName: string | null;
   sector: string | null;
+  price: number | null; // [scanscore] last close for new-buy candidate sizing
 };
 
 /** Percent return between two closes; null when inputs are unusable. */
@@ -202,6 +204,7 @@ async function scanTicker(
     engineSignal: engine?.signal ?? null,
     companyName: entry?.companyName ?? null,
     sector: sectorFor(ticker),
+    price: closes.length ? closes[closes.length - 1] : null,
   };
 }
 
@@ -225,6 +228,7 @@ ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS engine_score NUMERIC;
 ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS engine_signal TEXT;
 ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS company_name TEXT;
 ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS sector TEXT;
+ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS price NUMERIC;
 `;
 
 let rankingsSchemaReady: Promise<void> | null = null;
@@ -253,6 +257,7 @@ type RankingRow = {
   engine_signal: string | null;
   company_name: string | null;
   sector: string | null;
+  price: string | number | null;
   scanned_at: string | Date;
 };
 
@@ -283,8 +288,8 @@ async function persistOneRanking(r: WatchlistRanking): Promise<void> {
   await query(
     `INSERT INTO watchlist_rankings
        (ticker, momentum_pct, rs_pct, revision, composite, rsi14,
-        engine_score, engine_signal, company_name, sector, scanned_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        engine_score, engine_signal, company_name, sector, price, scanned_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      ON CONFLICT (ticker) DO UPDATE SET
        momentum_pct  = EXCLUDED.momentum_pct,
        rs_pct        = EXCLUDED.rs_pct,
@@ -295,6 +300,7 @@ async function persistOneRanking(r: WatchlistRanking): Promise<void> {
        engine_signal = EXCLUDED.engine_signal,
        company_name  = EXCLUDED.company_name,
        sector        = EXCLUDED.sector,
+       price         = EXCLUDED.price,
        scanned_at    = EXCLUDED.scanned_at`,
     [
       r.ticker,
@@ -307,6 +313,7 @@ async function persistOneRanking(r: WatchlistRanking): Promise<void> {
       r.engineSignal,
       r.companyName,
       r.sector,
+      r.price,
       r.scannedAt,
     ]
   );
@@ -318,7 +325,7 @@ async function readRankingsFromDb(): Promise<WatchlistRanking[] | null> {
     await ensureRankingsSchema();
     const rows = await query<RankingRow>(
       `SELECT ticker, momentum_pct, rs_pct, revision, composite, rsi14,
-              engine_score, engine_signal, company_name, sector, scanned_at
+              engine_score, engine_signal, company_name, sector, price, scanned_at
        FROM watchlist_rankings ORDER BY composite DESC`
     );
     if (rows.length === 0) return null;
@@ -335,6 +342,7 @@ async function readRankingsFromDb(): Promise<WatchlistRanking[] | null> {
       engineSignal: parseSignal(row.engine_signal),
       companyName: row.company_name,
       sector: row.sector,
+      price: row.price == null ? null : Number(row.price),
       scannedAt: new Date(row.scanned_at).toISOString(),
       rank: i + 1,
       universeSize,
@@ -418,6 +426,7 @@ export async function runWatchlistScan(): Promise<ScanResult> {
             engineSignal: stat.engineSignal,
             companyName: stat.companyName,
             sector: stat.sector,
+            price: stat.price,
             scannedAt,
             rank: 0,
             universeSize: 0,
@@ -464,6 +473,7 @@ export async function runWatchlistScan(): Promise<ScanResult> {
     engineSignal: s.engineSignal,
     companyName: s.companyName,
     sector: s.sector,
+    price: s.price,
     scannedAt,
     rank: i + 1,
     universeSize: unranked.length,
@@ -486,6 +496,18 @@ export async function runWatchlistScan(): Promise<ScanResult> {
           );
         }
       }
+    }
+  }
+
+  // [scanscore] prune tickers no longer in the universe (was lost when
+  // delete-all was replaced by per-name upsert).
+  if (dbReady) {
+    try {
+      await query("DELETE FROM watchlist_rankings WHERE ticker <> ALL($1)", [
+        UNIVERSE.map((u) => u.ticker),
+      ]);
+    } catch {
+      /* prune is best-effort */
     }
   }
 
