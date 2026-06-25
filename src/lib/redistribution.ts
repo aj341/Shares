@@ -217,7 +217,7 @@ export type NewPositionCandidate = {
   diversifierEntry?: boolean;
 };
 
-const MAX_NEW_POSITIONS = 2;
+const MAX_NEW_POSITIONS = 8; // [deploy] open enough new names to put freed cash to work (0% buffer target); per-name 8% + sector caps still bound sizing
 const NEW_POSITION_MAX_WEIGHT = 0.08; // starter size: ≤8% of the book each
 
 export function buildRedistribution(
