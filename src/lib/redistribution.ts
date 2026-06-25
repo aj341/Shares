@@ -1,4 +1,4 @@
-import { PORTFOLIO_RULES, CONCENTRATION_LIMITS, DIVERSIFICATION_DEPLOY } from "@/lib/constants"; // [divdeploy]
+import { PORTFOLIO_RULES, CONCENTRATION_LIMITS, DIVERSIFICATION_DEPLOY, GRADUATED_TRIM } from "@/lib/constants"; // [divdeploy] [gradtrim]
 import { minAnnouncementImpact } from "@/lib/announcements";
 // [sizing] concentration-aware sizing: limits which buys are allowed and
 // surfaces trim-for-concentration recommendations. Backwards compatible —
@@ -23,8 +23,8 @@ import type {
  * respecting the 30% position cap, the 5% cash buffer and whole-share rounding.
  */
 
-const { maxPositionWeight, targetCashBufferPct, minTradeSize, weakTrimTargetWeight } =
-  PORTFOLIO_RULES;
+const { maxPositionWeight, targetCashBufferPct, minTradeSize } =
+  PORTFOLIO_RULES; // [gradtrim] weakTrimTargetWeight no longer used here
 
 // [sizing] TRIM_CONCENTRATION is a distinct decision from the existing weak-score
 // TRIM — it fires when a name (or its sector) is already over a concentration
@@ -125,19 +125,32 @@ function trimShares(h: Holding): number {
 }
 
 /**
- * [trim-to-target] Shares to trim a WEAK name (score 40–54) straight down to
- * its target weight in ONE move, instead of slicing 30% each cycle. Returns 0
- * (→ hold) when the name is already at/under target or the trim is below the
- * minimum trade size.
+ * [gradtrim] Conviction-weighted graduated trim for a WEAK name. The trim is a
+ * FRACTION of CURRENT shares that scales with how deep the score sits in the
+ * TRIM band [trimFloor, holdFloor): a name only mildly weak (top of band) gives
+ * up a little; one near the SELL boundary gives up most of the position. A score
+ * below trimFloor (SELL band) is a full exit (fraction 1.0). Returns 0 (→ hold)
+ * when the rounded trim is zero shares or below the minimum trade size.
  */
-function weakTrimShares(h: Holding, totalPortfolioValue: number): number {
-  if (h.currentPrice <= 0 || totalPortfolioValue <= 0) return 0;
-  const targetShares = Math.floor(
-    (weakTrimTargetWeight * totalPortfolioValue) / h.currentPrice
-  );
-  const raw = h.shares - targetShares;
+function weakTrimFraction(score: number): number {
+  const { minFrac, maxFrac, holdFloor, trimFloor } = GRADUATED_TRIM;
+  // Below the TRIM band (SELL): full exit.
+  if (score < trimFloor) return 1.0;
+  // Linear map within [trimFloor, holdFloor): deeper in the band => larger trim.
+  const span = holdFloor - trimFloor;
+  const frac =
+    span > 0
+      ? minFrac + ((holdFloor - score) / span) * (maxFrac - minFrac)
+      : minFrac;
+  // Clamp to [minFrac, maxFrac].
+  return Math.min(maxFrac, Math.max(minFrac, frac));
+}
+
+function weakTrimShares(h: Holding): number {
+  if (h.currentPrice <= 0 || h.shares <= 0) return 0;
+  const raw = Math.round(h.shares * weakTrimFraction(h.score)); // whole shares
   if (raw <= 0) return 0;
-  if (raw * h.currentPrice < minTradeSize) return 0;
+  if (raw * h.currentPrice < minTradeSize) return 0; // gated by min trade size
   return raw;
 }
 
@@ -314,7 +327,7 @@ export function buildRedistribution(
         decision === "TRIM_CONCENTRATION"
           ? concentrationTrimShares(h, totalPortfolioValue, concCtxFor(h), concLimits)
           : decision === "TRIM" && h.score < 55
-            ? weakTrimShares(h, totalPortfolioValue)
+            ? weakTrimShares(h) // [gradtrim] conviction-weighted fraction of current shares
             : trimShares(h);
       sharesAfter = h.shares - ts;
       proceeds = ts * h.currentPrice;
@@ -376,7 +389,12 @@ export function buildRedistribution(
             : w.decision === "TRIM_CONCENTRATION"
               ? concRationale
               : w.holding.score < 55
-                ? `Trim ${soldShares} shares down to a ~${(weakTrimTargetWeight * 100).toFixed(0)}% target weight in one move — weak score ${w.holding.score}.`
+                ? // [gradtrim] state the % trimmed and that it scales with score
+                  `Trim ${soldShares} shares (${
+                    w.holding.shares > 0
+                      ? Math.round((soldShares / w.holding.shares) * 100)
+                      : 0
+                  }%) — score ${w.holding.score}, scaled to conviction.`
                 : `Trim ${soldShares} shares — overbought with a large gain near the position cap.`,
       });
     }
