@@ -91,6 +91,37 @@ export const CONCENTRATION_LIMITS = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// [gradtrim] Conviction-weighted graduated weak-score TRIM
+// ---------------------------------------------------------------------------
+
+/**
+ * [gradtrim] Sizing for the WEAK-SCORE trim (a name whose score sits in the
+ * TRIM band). Instead of slamming the position down to a flat target weight in
+ * one move, the trim is a FRACTION of CURRENT shares that scales with how deep
+ * the score sits in the TRIM band — a name only mildly weak (top of the band)
+ * trims a little; one near the SELL boundary trims most of the way out.
+ *
+ * Band boundaries reference the REAL SCORE_BANDS: HOLD floor = 55 (top of TRIM,
+ * exclusive), TRIM floor = 40 (bottom of TRIM). A score below 40 is in the SELL
+ * band and trims 100% (full exit via the trim).
+ *
+ *   trimFraction = minFrac + (holdFloor - score)/(holdFloor - trimFloor)
+ *                            * (maxFrac - minFrac),  clamped to [minFrac, maxFrac]
+ *
+ * e.g. score 54 -> ~0.10, score 47 -> ~0.50, score 40 -> ~0.90; score < 40 -> 1.0.
+ */
+export const GRADUATED_TRIM = {
+  /** Trim fraction at the TOP of the TRIM band (mildly weak, score ~54). */
+  minFrac: 0.10,
+  /** Trim fraction at the BOTTOM of the TRIM band (score 40). */
+  maxFrac: 0.90,
+  /** HOLD band floor — top boundary of the TRIM band (from SCORE_BANDS). */
+  holdFloor: 55,
+  /** TRIM band floor — bottom boundary of the TRIM band (from SCORE_BANDS). */
+  trimFloor: 40,
+} as const;
+
+// ---------------------------------------------------------------------------
 // [divdeploy] Diversification-aware cash deployment
 // ---------------------------------------------------------------------------
 
