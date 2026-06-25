@@ -218,7 +218,8 @@ export type NewPositionCandidate = {
 };
 
 const MAX_NEW_POSITIONS = 8; // [deploy] open enough new names to put freed cash to work (0% buffer target); per-name 8% + sector caps still bound sizing
-const NEW_POSITION_MAX_WEIGHT = 0.08; // starter size: ≤8% of the book each
+const NEW_POSITION_MAX_WEIGHT = 0.15; // [conviction] let the conviction split (capped by the 30% single-name limit) govern per-name size
+const CONVICTION_WEIGHT_FLOOR = 74; // [conviction] cash share per buy ∝ (score − this); steeper => stronger scores dominate (~2.5x at 89 vs 80)
 
 export function buildRedistribution(
   portfolio: PortfolioResponse,
@@ -560,7 +561,7 @@ export function buildRedistribution(
     ...queue.filter((q) => q.kind === "existing"),
     ...queue.filter((q) => q.kind === "new").slice(0, MAX_NEW_POSITIONS),
   ];
-  const totalWeight = fundable.reduce((s, q) => s + Math.max(1, q.score - 65), 0);
+  const totalWeight = fundable.reduce((s, q) => s + Math.max(1, q.score - CONVICTION_WEIGHT_FLOOR), 0);
   const budgetFor = new Map<string, number>();
   if (fundable.length > 1 && totalWeight > 0) {
     for (const q of fundable) {
@@ -568,7 +569,7 @@ export function buildRedistribution(
       budgetFor.set(
         t,
         Math.max(
-          (initialAvailable * Math.max(1, q.score - 65)) / totalWeight,
+          (initialAvailable * Math.max(1, q.score - CONVICTION_WEIGHT_FLOOR)) / totalWeight,
           minTradeSize
         )
       );
