@@ -8,16 +8,24 @@ import {
 /**
  * [exthours] Extended-hours (pre / post-market) pricing from Mboum.
  *
- * Mboum's `/markets/quote` endpoint (Nasdaq-backed) returns a `body` with a
- * `primaryData` block (the regular-session print) and, during pre/after-hours,
- * a `secondaryData` block holding the EXTENDED-HOURS print. `marketStatus`
- * tells us which session Nasdaq currently considers active.
+ * Mboum's `/markets/quote` endpoint (Nasdaq-backed) returns a `body` with TWO
+ * print blocks plus a `marketStatus` string. IMPORTANT — which block holds the
+ * live extended print is NOT fixed by name. Verified against live Nasdaq data
+ * during pre-market (NBIS, 2026-06-25 07:24 ET):
  *
- * This module's only job: when the REGULAR session is closed, fetch a real
- * pre/post-market print so the dashboard can surface a live price instead of
- * yesterday's close (the IBKR-shows-live-pre-market pain). It NEVER fabricates:
- * any missing / unparseable / non-positive field yields null, and the caller
- * falls back to the existing prior-close behavior.
+ *   primaryData   = LIVE pre-market print  ($271.40, +4.52%, isRealTime: true)
+ *   secondaryData = prior regular close    ($259.66, "Closed at ... 4:00 PM ET",
+ *                                            isRealTime: false)
+ *
+ * The earlier implementation read `secondaryData` as the extended price, which
+ * is exactly inverted — it surfaced yesterday's 4 PM close and labelled it
+ * "pre". The fix: select the block flagged `isRealTime` as the live extended
+ * print, and treat the other (the "Closed at ..." block) as the regular close
+ * we measure change against. This is robust for both pre- and after-hours,
+ * regardless of which named block Nasdaq puts the live print in.
+ *
+ * This module NEVER fabricates: any missing / unparseable / non-positive field
+ * yields null and the caller falls back to the existing prior-close behavior.
  *
  * Endpoint: GET /markets/quote?ticker=<SYM>&type=STOCKS
  */
@@ -33,19 +41,20 @@ export type ExtendedQuote = {
   regularClose: number | null;
 };
 
+/** One Nasdaq print block — only the fields we read. */
+type MboumPrintBlock = {
+  lastSalePrice?: string | null;
+  netChange?: string | null;
+  percentageChange?: string | null;
+  isRealTime?: boolean | null;
+  lastTradeTimestamp?: string | null;
+} | null;
+
 /** Mboum / Nasdaq quote response — only the fields we read. */
 type MboumQuoteBody = {
   marketStatus?: string | null;
-  primaryData?: {
-    lastSalePrice?: string | null;
-    netChange?: string | null;
-    percentageChange?: string | null;
-  } | null;
-  secondaryData?: {
-    lastSalePrice?: string | null;
-    netChange?: string | null;
-    percentageChange?: string | null;
-  } | null;
+  primaryData?: MboumPrintBlock;
+  secondaryData?: MboumPrintBlock;
   keyStats?: { PreviousClose?: { value?: string | null } } | null;
 };
 type MboumQuoteResponse = { body?: MboumQuoteBody | null };
@@ -62,6 +71,13 @@ function parsePct(v: string | null | undefined): number | null {
   if (v == null) return null;
   const n = Number(String(v).replace(/[^0-9.\-]/g, ""));
   return Number.isFinite(n) ? n : null;
+}
+
+/** True when a block looks like a stale "Closed at ..." regular-session print. */
+function isClosedBlock(b: MboumPrintBlock): boolean {
+  if (!b) return false;
+  if (b.isRealTime === true) return false;
+  return /closed/i.test(b.lastTradeTimestamp ?? "");
 }
 
 /**
@@ -82,12 +98,37 @@ function sessionFromStatus(
 }
 
 /**
+ * Pick the LIVE extended print block and the prior-close block from the two
+ * Nasdaq blocks. The live print is whichever block is flagged `isRealTime`;
+ * the other is the regular close. Defensive fallbacks keep us correct even if
+ * the flag is ever missing.
+ */
+function selectBlocks(body: MboumQuoteBody): {
+  live: MboumPrintBlock;
+  close: MboumPrintBlock;
+} {
+  const pd = body.primaryData ?? null;
+  const sd = body.secondaryData ?? null;
+
+  // Primary signal: the realtime block is the live extended print.
+  if (pd?.isRealTime === true) return { live: pd, close: sd };
+  if (sd?.isRealTime === true) return { live: sd, close: pd };
+
+  // Secondary signal: if one block is explicitly "Closed at ...", the other is live.
+  if (isClosedBlock(sd) && pd) return { live: pd, close: sd };
+  if (isClosedBlock(pd) && sd) return { live: sd, close: pd };
+
+  // Fallback: Nasdaq's primaryData is the "current" sale; treat it as live.
+  return { live: pd ?? sd, close: pd ? sd : null };
+}
+
+/**
  * Fetch a real extended-hours print for `ticker`, or null.
  *
  * Returns non-null ONLY when:
  *   - Mboum is configured, AND
  *   - the resolved session is "pre" or "post" (never "regular"/"closed"), AND
- *   - a positive secondaryData lastSalePrice is present.
+ *   - a positive live-block lastSalePrice is present.
  *
  * `clockSession` is the wall-clock session (US/Eastern); it is used both as the
  * gate (we don't bother fetching during the regular session) and as the
@@ -120,15 +161,17 @@ export async function getExtendedHoursQuote(
   // regular market is open or fully closed, leave the prior-close path alone.
   if (session !== "pre" && session !== "post") return null;
 
-  const price = parseMoney(body.secondaryData?.lastSalePrice);
+  const { live, close } = selectBlocks(body);
+
+  const price = parseMoney(live?.lastSalePrice);
   if (price == null) return null; // no valid extended print -> fall back
 
-  // Prefer the explicit extended % change; otherwise derive it from the
-  // regular-session close (primaryData price / previous close).
+  // The live block's own % change is already measured vs the regular close.
+  // If absent, derive it from the close block (or keyStats.PreviousClose).
   const regularClose =
-    parseMoney(body.primaryData?.lastSalePrice) ??
+    parseMoney(close?.lastSalePrice) ??
     parseMoney(body.keyStats?.PreviousClose?.value);
-  let changePct = parsePct(body.secondaryData?.percentageChange);
+  let changePct = parsePct(live?.percentageChange);
   if (changePct == null && regularClose != null && regularClose > 0) {
     changePct = ((price - regularClose) / regularClose) * 100;
   }
