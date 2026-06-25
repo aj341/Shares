@@ -1,4 +1,5 @@
 import "server-only";
+import { getMarketSession } from "@/lib/market-session";
 import {
   getFinancials,
   getKeyStats,
@@ -130,7 +131,19 @@ export async function computeLiveMetrics(
   // factors.ts / relative-strength.ts which use adjClose) so the RS-vs-QQQ
   // comparison is split/dividend-consistent across both code paths.
   const adjCloses = candles.map((c) => c.adjClose);
-  const volumes = candles.map((c) => c.volume);
+  // [volfix] During the LIVE regular session the most recent daily bar is today's
+  // IN-PROGRESS bar (only partly filled), which makes every volume ratio crater
+  // right after the open and drags scores down ~15-20 pts. Use the last COMPLETE
+  // day for all volume metrics; after the close today's bar is whole, so keep it.
+  const _todayET = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  }).format(new Date());
+  const _lastIsTodayPartial =
+    getMarketSession() === "regular" &&
+    candles.length > 1 &&
+    candles[candles.length - 1]?.date === _todayET;
+  const volCandles = _lastIsTodayPartial ? candles.slice(0, -1) : candles;
+  const volumes = volCandles.map((c) => c.volume);
   if (closes.length < 50) return null; // not enough history → caller uses mock
 
   const price = closes[closes.length - 1];
@@ -191,7 +204,7 @@ export async function computeLiveMetrics(
   // [score] Liquidity gate: today's dollar volume vs its ~20d average dollar
   // volume. Dollar volume = price * share volume, which captures tradability
   // better than share count alone. Null-safe across the whole series.
-  const dollarVols = candles.map((c) => c.close * c.volume);
+  const dollarVols = volCandles.map((c) => c.close * c.volume); // [volfix] complete days only
   const avgDollarVol = sma(dollarVols, 20);
   const lastDollarVol = dollarVols[dollarVols.length - 1];
   const liqRatio =
