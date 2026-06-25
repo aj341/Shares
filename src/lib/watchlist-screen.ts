@@ -3,7 +3,11 @@ import { getStockHistory, isMboumConfigured } from "@/lib/mboum";
 import { getRevisionTrend } from "@/lib/revisions";
 import { isDatabaseConfigured, query } from "@/lib/db";
 import { getDerivedPortfolio } from "@/lib/portfolio-derivation";
-import { UNIVERSE } from "@/lib/universe";
+import { UNIVERSE, universeEntryFor } from "@/lib/universe";
+// [scanscore] shared engine score so the scan persists the SAME score holdings use.
+import { scoreOnEngine } from "@/lib/engine-score";
+import { sectorFor } from "@/lib/sectors";
+import type { Signal } from "@/lib/types";
 
 /**
  * Systematic relative-strength screen over the Nasdaq-100 universe.
@@ -16,9 +20,12 @@ import { UNIVERSE } from "@/lib/universe";
  *  - Analyst revision direction (upgrading / stable / downgrading).
  *
  * Composite rank = 0.5 * momentumZ + 0.4 * rsZ + 0.1 * revisionScore, where
- * the z-scores are standardized across the scanned set. Results persist to
- * Postgres (watchlist_rankings, delete+insert each run) with an in-memory
- * fallback when no database is configured.
+ * the z-scores are standardized across the scanned set. The scan ALSO computes
+ * the same 0-100 engine score the holdings use and persists it per-name (see
+ * [scanscore]) so reads are cheap (DB-only). Results persist to Postgres
+ * (watchlist_rankings, per-name UPSERT — incremental + resilient so a partial
+ * scan still accumulates coverage) with an in-memory fallback when no database
+ * is configured.
  */
 
 export type RevisionDirection = "upgrading" | "stable" | "downgrading";
@@ -33,6 +40,14 @@ export type WatchlistRanking = {
   composite: number;
   /** RSI(14) at scan time — entry-quality signal (low = pulled back). */
   rsi14: number | null;
+  // [scanscore] Persisted engine score/signal — the SAME 0-100 score holdings
+  // use (computed in the scan, read cheaply). Null for pre-migration rows or a
+  // name whose live scoring failed; callers degrade to the composite rank.
+  engineScore: number | null;
+  engineSignal: Signal | null;
+  /** Company name / sector persisted in the scan (cheap reads avoid lookups). */
+  companyName: string | null;
+  sector: string | null;
   scannedAt: string; // ISO timestamp
   /** 1-based rank by composite desc within the scanned set. */
   rank: number;
@@ -66,6 +81,11 @@ type RawStats = {
   rsPct: number;
   revision: RevisionDirection;
   rsi14: number | null;
+  // [scanscore] engine score computed in the scan (same path holdings use).
+  engineScore: number | null;
+  engineSignal: Signal | null;
+  companyName: string | null;
+  sector: string | null;
 };
 
 /** Percent return between two closes; null when inputs are unusable. */
@@ -165,12 +185,23 @@ async function scanTicker(
     // Revision data is a 10% factor — treat failures as "stable".
   }
 
+  // [scanscore] Compute the engine score HERE (in the scan), reusing the shared
+  // scoreOnEngine path so the universe is scored with the SAME 0-100 engine the
+  // holdings use. computeLiveMetrics is internally cached. Failure -> null
+  // (back-compat / graceful): the name still ranks on its composite.
+  const engine = await scoreOnEngine(ticker);
+  const entry = universeEntryFor(ticker);
+
   return {
     ticker,
     momentumPct: round2(momentumPct),
     rsPct: round2(sixMonthPct - qqq6mPct),
     revision,
     rsi14: rsi14(closes),
+    engineScore: engine?.score ?? null,
+    engineSignal: engine?.signal ?? null,
+    companyName: entry?.companyName ?? null,
+    sector: sectorFor(ticker),
   };
 }
 
@@ -188,6 +219,12 @@ CREATE TABLE IF NOT EXISTS watchlist_rankings (
   scanned_at   TIMESTAMPTZ NOT NULL
 );
 ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS rsi14 NUMERIC;
+-- [scanscore] persist the engine score + signal + light metadata so reads are
+-- cheap (DB-only) and never need to live-re-score the universe.
+ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS engine_score NUMERIC;
+ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS engine_signal TEXT;
+ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS company_name TEXT;
+ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS sector TEXT;
 `;
 
 let rankingsSchemaReady: Promise<void> | null = null;
@@ -211,6 +248,11 @@ type RankingRow = {
   revision: string;
   composite: string | number;
   rsi14: string | number | null;
+  // [scanscore] persisted engine fields (nullable for pre-migration rows).
+  engine_score: string | number | null;
+  engine_signal: string | null;
+  company_name: string | null;
+  sector: string | null;
   scanned_at: string | Date;
 };
 
@@ -218,18 +260,56 @@ function parseRevision(v: string): RevisionDirection {
   return v === "upgrading" || v === "downgrading" ? v : "stable";
 }
 
-async function persistRankings(rankings: WatchlistRanking[]): Promise<void> {
-  await ensureRankingsSchema();
-  // Delete + insert each run so the table always reflects the latest scan.
-  await query("DELETE FROM watchlist_rankings");
-  for (const r of rankings) {
-    await query(
-      `INSERT INTO watchlist_rankings
-         (ticker, momentum_pct, rs_pct, revision, composite, rsi14, scanned_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [r.ticker, r.momentumPct, r.rsPct, r.revision, r.composite, r.rsi14, r.scannedAt]
-    );
-  }
+const VALID_SIGNALS: ReadonlySet<string> = new Set([
+  "STRONG_BUY",
+  "BUY",
+  "HOLD",
+  "TRIM",
+  "SELL",
+]);
+
+// [scanscore] Parse a persisted signal string back to the Signal union; null
+// (back-compat) for pre-migration rows or unrecognised values.
+function parseSignal(v: string | null): Signal | null {
+  return v != null && VALID_SIGNALS.has(v) ? (v as Signal) : null;
+}
+
+// [scanscore] Per-name UPSERT (not delete-all/insert-all). Persisting each name
+// AS IT IS SCORED means a partial scan (rate-limited or time-boxed) still
+// accumulates coverage across runs instead of writing nothing. ON CONFLICT keeps
+// the latest values for a ticker. The composite/rank are written here too, but
+// finalised once the whole set is scored (z-scores need the full set).
+async function persistOneRanking(r: WatchlistRanking): Promise<void> {
+  await query(
+    `INSERT INTO watchlist_rankings
+       (ticker, momentum_pct, rs_pct, revision, composite, rsi14,
+        engine_score, engine_signal, company_name, sector, scanned_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     ON CONFLICT (ticker) DO UPDATE SET
+       momentum_pct  = EXCLUDED.momentum_pct,
+       rs_pct        = EXCLUDED.rs_pct,
+       revision      = EXCLUDED.revision,
+       composite     = EXCLUDED.composite,
+       rsi14         = EXCLUDED.rsi14,
+       engine_score  = EXCLUDED.engine_score,
+       engine_signal = EXCLUDED.engine_signal,
+       company_name  = EXCLUDED.company_name,
+       sector        = EXCLUDED.sector,
+       scanned_at    = EXCLUDED.scanned_at`,
+    [
+      r.ticker,
+      r.momentumPct,
+      r.rsPct,
+      r.revision,
+      r.composite,
+      r.rsi14,
+      r.engineScore,
+      r.engineSignal,
+      r.companyName,
+      r.sector,
+      r.scannedAt,
+    ]
+  );
 }
 
 async function readRankingsFromDb(): Promise<WatchlistRanking[] | null> {
@@ -237,7 +317,9 @@ async function readRankingsFromDb(): Promise<WatchlistRanking[] | null> {
   try {
     await ensureRankingsSchema();
     const rows = await query<RankingRow>(
-      "SELECT ticker, momentum_pct, rs_pct, revision, composite, rsi14, scanned_at FROM watchlist_rankings ORDER BY composite DESC"
+      `SELECT ticker, momentum_pct, rs_pct, revision, composite, rsi14,
+              engine_score, engine_signal, company_name, sector, scanned_at
+       FROM watchlist_rankings ORDER BY composite DESC`
     );
     if (rows.length === 0) return null;
     const universeSize = rows.length;
@@ -248,6 +330,11 @@ async function readRankingsFromDb(): Promise<WatchlistRanking[] | null> {
       revision: parseRevision(row.revision),
       composite: Number(row.composite),
       rsi14: row.rsi14 == null ? null : Number(row.rsi14),
+      // [scanscore] persisted engine fields; null-safe for pre-migration rows.
+      engineScore: row.engine_score == null ? null : Number(row.engine_score),
+      engineSignal: parseSignal(row.engine_signal),
+      companyName: row.company_name,
+      sector: row.sector,
       scannedAt: new Date(row.scanned_at).toISOString(),
       rank: i + 1,
       universeSize,
@@ -283,6 +370,23 @@ export async function runWatchlistScan(): Promise<ScanResult> {
     return { scanned: 0, ranked: 0 };
   }
 
+  const dbReady = isDatabaseConfigured();
+  // [scanscore] Ensure the schema (incl. the new engine_score columns) exists
+  // BEFORE the loop so per-name upserts during the scan succeed.
+  if (dbReady) {
+    try {
+      await ensureRankingsSchema();
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(
+          "[watchlist-screen] schema ensure failed (memory fallback kept):",
+          (err as Error).message
+        );
+      }
+    }
+  }
+
+  const scannedAt = new Date().toISOString();
   const stats: RawStats[] = [];
   let scanned = 0;
   for (let i = 0; i < UNIVERSE.length; i += BATCH_SIZE) {
@@ -292,7 +396,41 @@ export async function runWatchlistScan(): Promise<ScanResult> {
     );
     for (const res of settled) {
       scanned += 1;
-      if (res.status === "fulfilled" && res.value) stats.push(res.value);
+      // [scanscore] A name that fails scoring is skipped, not fatal.
+      if (res.status !== "fulfilled" || !res.value) continue;
+      const stat = res.value;
+      stats.push(stat);
+      // [scanscore] INCREMENTAL persist: write each name AS IT IS SCORED with a
+      // provisional composite (finalised below once the whole set's z-scores are
+      // known). A partial/time-boxed run thus still accumulates coverage instead
+      // of writing nothing. Per-name failure is swallowed so one bad row never
+      // aborts the scan.
+      if (dbReady) {
+        try {
+          await persistOneRanking({
+            ticker: stat.ticker,
+            momentumPct: stat.momentumPct,
+            rsPct: stat.rsPct,
+            revision: stat.revision,
+            composite: 0, // provisional — corrected in the finalise pass
+            rsi14: stat.rsi14,
+            engineScore: stat.engineScore,
+            engineSignal: stat.engineSignal,
+            companyName: stat.companyName,
+            sector: stat.sector,
+            scannedAt,
+            rank: 0,
+            universeSize: 0,
+          });
+        } catch (err) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn(
+              `[watchlist-screen] incremental persist failed for ${stat.ticker}:`,
+              (err as Error).message
+            );
+          }
+        }
+      }
     }
     // [scanfix] brief spacing so a 104-name scan doesn't trip Mboum throttling.
     if (i + BATCH_SIZE < UNIVERSE.length) {
@@ -302,9 +440,10 @@ export async function runWatchlistScan(): Promise<ScanResult> {
 
   if (stats.length === 0) return { scanned, ranked: 0 };
 
+  // Finalise: z-scores standardise across the scanned set, so composite/rank can
+  // only be computed once every name is in.
   const momentumZ = zScores(stats.map((s) => s.momentumPct));
   const rsZ = zScores(stats.map((s) => s.rsPct));
-  const scannedAt = new Date().toISOString();
 
   const unranked = stats.map((s, i) => ({
     ...s,
@@ -321,6 +460,10 @@ export async function runWatchlistScan(): Promise<ScanResult> {
     revision: s.revision,
     composite: s.composite,
     rsi14: s.rsi14,
+    engineScore: s.engineScore,
+    engineSignal: s.engineSignal,
+    companyName: s.companyName,
+    sector: s.sector,
     scannedAt,
     rank: i + 1,
     universeSize: unranked.length,
@@ -328,15 +471,20 @@ export async function runWatchlistScan(): Promise<ScanResult> {
 
   // Always keep the in-memory copy current; persist to Postgres when present.
   MEM_RANKINGS = rankings;
-  if (isDatabaseConfigured()) {
-    try {
-      await persistRankings(rankings);
-    } catch (err) {
-      if (process.env.NODE_ENV !== "production") {
-        console.warn(
-          "[watchlist-screen] DB persist failed (memory fallback kept):",
-          (err as Error).message
-        );
+  if (dbReady) {
+    // [scanscore] Finalise pass: re-upsert with the real composite (and refreshed
+    // per-name fields). Still per-name + tolerant — a failed row leaves its
+    // earlier incremental value in place rather than aborting the run.
+    for (const r of rankings) {
+      try {
+        await persistOneRanking(r);
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(
+            `[watchlist-screen] finalise persist failed for ${r.ticker} (memory fallback kept):`,
+            (err as Error).message
+          );
+        }
       }
     }
   }

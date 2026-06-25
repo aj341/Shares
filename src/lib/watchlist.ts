@@ -9,7 +9,7 @@ import {
   rankCrossSection,
   type RankableInput,
 } from "@/lib/factors";
-import { extractRsi, scoreHolding } from "@/lib/scoring";
+import { scoreOnEngine } from "@/lib/engine-score"; // [scanscore] shared engine score (one impl for scan + watchlist)
 import { sectorFor } from "@/lib/sectors";
 // [calibration][integration] additive conviction overlay on watchlist items.
 import { getCalibrationCached, convictionForSignal } from "@/lib/calibration";
@@ -216,28 +216,7 @@ function candidateFromRanking(r: WatchlistRanking): Candidate {
   };
 }
 
-/**
- * Score a watchlist name on the SAME 20-metric engine as holdings — the
- * bucket is entry TIMING (RSI); this is QUALITY. Null when live data fails
- * (no-mock rule). computeLiveMetrics has its own 10-min cache.
- */
-async function scoreOnEngine(
-  ticker: string
-): Promise<{ score: number; signal: Signal } | null> {
-  try {
-    const metrics = await computeLiveMetrics(ticker, []);
-    if (!metrics) return null;
-    const { score, signal } = scoreHolding(metrics, {
-      rsi: extractRsi(metrics),
-      unrealisedPnlPct: 0,
-      portfolioWeight: 0,
-      minAnnouncementImpact: 0,
-    });
-    return { score, signal };
-  } catch {
-    return null;
-  }
-}
+// [scanscore] scoreOnEngine moved to engine-score.ts (shared by the scan).
 
 /** Entry-zone threshold: RSI below this counts as a constructive pullback. */
 const ENTRY_RSI_MAX = 50;
@@ -301,90 +280,31 @@ async function resolveCandidates(): Promise<Candidate[]> {
 }
 
 // [wlfilter] -------------------------------------------------------------
-// FULL-COVERAGE ranked list. The curated `items` above are an 8-name bucketed
-// "suggestions" view; this builds a complete WatchlistItem for EVERY scanned,
-// non-held universe name so /api/watchlist exposes the whole ranked set and
-// the redistribution candidate path sees all of them (root cause of the old
-// "only ~8 names" cap: resolveCandidates() returned just CANDIDATES.length and
-// nothing else was ever engine-scored).
-//
-// Enrichment here is the lighter, resilient path: engine score + technicals +
-// bucket + ranking-derived editorial, with bounded concurrency and per-name
-// failure tolerance. The heavy cross-section / earnings / insider overlays stay
-// on the curated `items` (their fields are optional + null-safe on the type).
+// FULL-COVERAGE ranked list. The curated `items` are an 8-name bucketed
+// "suggestions" view; buildFullRanked (below) builds a complete WatchlistItem
+// for EVERY scanned, non-held universe name from PERSISTED engine scores — the
+// root-cause fix for the old "only ~8 names" cap. The heavy live enrichment
+// (technicals / earnings / insider / factors) stays on the curated `items`.
+// [scanscore] The old live re-scoring helpers (mapWithConcurrency / enrichRanked)
+// were removed with the [wlperf] cap — the full set is now DB-only.
 
-/** Bounded-concurrency map — caps simultaneous Mboum work to respect limits. */
-async function mapWithConcurrency<T, R>(
-  xs: T[],
-  limit: number,
-  fn: (x: T, i: number) => Promise<R>
-): Promise<R[]> {
-  const out: R[] = new Array(xs.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, xs.length) }, async () => {
-    for (;;) {
-      const i = next++;
-      if (i >= xs.length) return;
-      out[i] = await fn(xs[i], i);
-    }
-  });
-  await Promise.all(workers);
-  return out;
-}
-
-/** Enrich ONE ranked name into a complete (lighter) WatchlistItem. Null-safe;
- *  never throws — returns a degraded-but-valid item on data failure. */
-async function enrichRanked(
-  c: Candidate,
-  ranking: WatchlistRanking | null
-): Promise<WatchlistItem> {
-  const [tech, actions, engine] = await Promise.all([
-    buildStockTechnicals(c.ticker).catch(() => null),
-    getUpgradeDowngrade(c.ticker).catch(() => []),
-    scoreOnEngine(c.ticker),
-  ]);
-  const price = tech?.sparkline.at(-1) ?? null;
-  const rsi = tech?.rsi ?? ranking?.rsi14 ?? null;
-  const trendUp = tech?.priceVsMa50 === "above" || tech?.priceVsMa20 === "above";
-  const buyRated = engine?.signal === "BUY" || engine?.signal === "STRONG_BUY";
-  const { bucket, label } = bucketFor(rsi, { trendUp, buyRated });
-  return {
-    engineScore: engine?.score ?? null,
-    engineSignal: engine?.signal ?? null,
-    ticker: c.ticker,
-    companyName: c.companyName,
-    sector: sectorFor(c.ticker),
-    subSectors: c.subSectors,
-    price,
-    upsidePct: tech?.targetUpsidePct ?? null,
-    rsi,
-    targetMean: tech?.targetMean ?? null,
-    peRatio: tech?.peRatio ?? null,
-    bullishPct: tech?.bullishPct ?? null,
-    analystRating: ratingLabel(tech?.bullishPct ?? null),
-    week52High: tech?.week52High ?? null,
-    week52Low: tech?.week52Low ?? null,
-    bucket,
-    signalLabel: label,
-    whyItFits: c.whyItFits,
-    bullCase: c.bullCase,
-    keyRisk: c.keyRisk,
-    technicalSignal: technicalSignal(bucket, rsi),
-    recentAnalystActions: actions,
-  };
-}
-
-/** Full ranked set as WatchlistItems. Reuses already-enriched curated `items`
- *  where tickers overlap (avoids duplicate Mboum work). Bounded concurrency. */
+/**
+ * [scanscore] CHEAP full ranked set — DB-only. Builds a complete WatchlistItem
+ * for EVERY scanned, non-held universe name from the PERSISTED engine score the
+ * scan computed (no live re-scoring, no per-name Mboum fetch). This is what made
+ * reads slow before: the old buildFullRanked live-re-scored the universe via
+ * computeLiveMetrics, so the request timed out and the [wlperf] cap fell back to
+ * ~8 names. Now the scan owns the cost; reads just read the DB.
+ *
+ * Curated `items` (richer live enrichment) are reused where tickers overlap, so
+ * the suggestions keep their full technicals/overlays. Names with a null
+ * engine_score (pre-migration rows, or not-yet-scored) degrade gracefully — they
+ * still appear with whatever stats the ranking carries (engineScore stays null).
+ */
 async function buildFullRanked(curated: WatchlistItem[]): Promise<WatchlistItem[]> {
-  // [wlperf] cap live engine re-scoring to the top names by composite rank —
-  // far more than the old 8, includes the best per-sector diversifiers, and
-  // keeps /api/redistribution + /api/watchlist fast (the 15-min cache covers
-  // the rest). Lower-ranked names still scan; they surface as the cache cycles.
-  const FULL_RANKED_CAP = 45;
   let pool: WatchlistRanking[] = [];
   try {
-    pool = (await getAllRanked()).slice(0, FULL_RANKED_CAP);
+    pool = await getAllRanked();
   } catch (err) {
     if (process.env.NODE_ENV !== "production") {
       console.warn("[wlfilter] full ranked unavailable:", (err as Error).message);
@@ -395,13 +315,48 @@ async function buildFullRanked(curated: WatchlistItem[]): Promise<WatchlistItem[
     return curated;
   }
   const byTicker = new Map(curated.map((i) => [i.ticker, i] as const));
-  const enriched = await mapWithConcurrency(pool, 5, async (r) => {
-    const existing = byTicker.get(r.ticker);
-    if (existing) return existing;
-    return enrichRanked(candidateFromRanking(r), r);
-  });
-  // Preserve composite-rank order (pool is already composite-desc).
-  return enriched;
+  // Synchronous, DB-backed: no awaits inside, no live re-scoring.
+  return pool.map((r) => byTicker.get(r.ticker) ?? itemFromRankingDb(r));
+}
+
+/**
+ * [scanscore] Build a WatchlistItem purely from a persisted DB ranking — NO
+ * Mboum / computeLiveMetrics call. Uses the persisted engine_score/signal plus
+ * the ranking's own rsi14 for the entry bucket. Back-compat: when engine_score
+ * is null we omit the score (null) rather than crash, and still surface the name
+ * via its composite rank. Persisted company_name/sector are preferred, with the
+ * static universe entry as the fallback.
+ */
+function itemFromRankingDb(r: WatchlistRanking): WatchlistItem {
+  const c = candidateFromRanking(r);
+  const buyRated = r.engineSignal === "BUY" || r.engineSignal === "STRONG_BUY";
+  // RSI-driven bucket; trendUp is unknown without live MAs, so only the
+  // RSI extremes + (buy-rated) momentum band apply — consistent with bucketFor.
+  const { bucket, label } = bucketFor(r.rsi14, { trendUp: false, buyRated });
+  return {
+    engineScore: r.engineScore,
+    engineSignal: r.engineSignal,
+    ticker: r.ticker,
+    companyName: r.companyName ?? c.companyName,
+    sector: r.sector ?? sectorFor(r.ticker),
+    subSectors: c.subSectors,
+    price: null, // DB-cheap path carries no live price (curated items do).
+    upsidePct: null,
+    rsi: r.rsi14,
+    targetMean: null,
+    peRatio: null,
+    bullishPct: null,
+    analystRating: null,
+    week52High: null,
+    week52Low: null,
+    bucket,
+    signalLabel: label,
+    whyItFits: c.whyItFits,
+    bullCase: c.bullCase,
+    keyRisk: c.keyRisk,
+    technicalSignal: technicalSignal(bucket, r.rsi14),
+    recentAnalystActions: [],
+  };
 }
 // [wlfilter] end ----------------------------------------------------------
 
@@ -554,12 +509,9 @@ export async function buildWatchlist(): Promise<WatchlistResponse> {
   // [wlfilter] Build the FULL ranked set (every scanned, non-held name) for the
   // sector filter + redistribution coverage. Reuses the curated items above
   // where tickers overlap. Null-safe: failures degrade to the curated list.
-  // [wlperf] never let the full-ranked build hang a request; fall back to the
-  // curated set if it runs long (it warms into the 15-min cache next call).
-  const all = await Promise.race([
-    buildFullRanked(items),
-    new Promise<WatchlistItem[]>((res) => setTimeout(() => res(items), 18000)),
-  ]).catch(() => items);
+  // [scanscore] The build is now DB-only (persisted engine scores) and cheap, so
+  // the old [wlperf] 18s race/timeout that capped coverage at 8 is removed.
+  const all = await buildFullRanked(items).catch(() => items);
 
   const result: WatchlistResponse = {
     items,

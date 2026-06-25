@@ -3,7 +3,11 @@ import { runWatchlistScan } from "@/lib/watchlist-screen";
 import type { ApiError } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-// Scanning ~40 tickers in batches of 5 against Mboum takes a while.
+// [scanscore] The scan now also computes the full 0-100 engine score per name
+// (computeLiveMetrics + scoreHolding) across the 104-name universe, on top of
+// the relative-strength pulls — so give it the full server budget. Persistence
+// is incremental per-name, so even if the platform cuts the run short, coverage
+// accumulates across runs rather than being lost.
 export const maxDuration = 300;
 
 /**
