@@ -1,5 +1,5 @@
 import "server-only";
-import { getStockHistory, isMboumConfigured } from "@/lib/mboum";
+import { getStockHistory, getKeyStats, getAnalystRatings, isMboumConfigured } from "@/lib/mboum";
 import { getRevisionTrend } from "@/lib/revisions";
 import { isDatabaseConfigured, query } from "@/lib/db";
 import { getDerivedPortfolio } from "@/lib/portfolio-derivation";
@@ -49,6 +49,11 @@ export type WatchlistRanking = {
   companyName: string | null;
   sector: string | null;
   price: number | null; // [scanscore] last close (candidate sizing)
+  // [headercards] persisted fundamentals for watchlist row cards.
+  peRatio: number | null;
+  week52High: number | null;
+  week52Low: number | null;
+  bullishPct: number | null;
   scannedAt: string; // ISO timestamp
   /** 1-based rank by composite desc within the scanned set. */
   rank: number;
@@ -88,6 +93,11 @@ type RawStats = {
   companyName: string | null;
   sector: string | null;
   price: number | null; // [scanscore] last close for new-buy candidate sizing
+  // [headercards] fundamentals persisted so watchlist rows show real data.
+  peRatio: number | null;
+  week52High: number | null;
+  week52Low: number | null;
+  bullishPct: number | null;
 };
 
 /** Percent return between two closes; null when inputs are unusable. */
@@ -192,6 +202,22 @@ async function scanTicker(
   // holdings use. computeLiveMetrics is internally cached. Failure -> null
   // (back-compat / graceful): the name still ranks on its composite.
   const engine = await scoreOnEngine(ticker);
+  // [headercards] Fundamentals for the row cards. getKeyStats is already warmed
+  // by computeLiveMetrics (cache hit); getAnalystRatings is the only new call.
+  const [keyStats, ratings] = await Promise.all([
+    getKeyStats(ticker).catch(() => null),
+    getAnalystRatings(ticker).catch(() => null),
+  ]);
+  const bullishPct = ratings
+    ? Math.round(
+        ((ratings.strongBuy + ratings.buy) /
+          Math.max(
+            1,
+            ratings.strongBuy + ratings.buy + ratings.hold + ratings.sell + ratings.strongSell
+          )) *
+          100
+      )
+    : null;
   const entry = universeEntryFor(ticker);
 
   return {
@@ -205,6 +231,10 @@ async function scanTicker(
     companyName: entry?.companyName ?? null,
     sector: sectorFor(ticker),
     price: closes.length ? closes[closes.length - 1] : null,
+    peRatio: keyStats?.peRatio ?? null,
+    week52High: keyStats?.week52High ?? null,
+    week52Low: keyStats?.week52Low ?? null,
+    bullishPct,
   };
 }
 
@@ -229,6 +259,10 @@ ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS engine_signal TEXT;
 ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS company_name TEXT;
 ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS sector TEXT;
 ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS price NUMERIC;
+ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS pe_ratio NUMERIC;
+ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS week52_high NUMERIC;
+ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS week52_low NUMERIC;
+ALTER TABLE watchlist_rankings ADD COLUMN IF NOT EXISTS bullish_pct NUMERIC;
 `;
 
 let rankingsSchemaReady: Promise<void> | null = null;
@@ -258,6 +292,10 @@ type RankingRow = {
   company_name: string | null;
   sector: string | null;
   price: string | number | null;
+  pe_ratio: string | number | null;
+  week52_high: string | number | null;
+  week52_low: string | number | null;
+  bullish_pct: string | number | null;
   scanned_at: string | Date;
 };
 
@@ -288,8 +326,9 @@ async function persistOneRanking(r: WatchlistRanking): Promise<void> {
   await query(
     `INSERT INTO watchlist_rankings
        (ticker, momentum_pct, rs_pct, revision, composite, rsi14,
-        engine_score, engine_signal, company_name, sector, price, scanned_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        engine_score, engine_signal, company_name, sector, price,
+        pe_ratio, week52_high, week52_low, bullish_pct, scanned_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      ON CONFLICT (ticker) DO UPDATE SET
        momentum_pct  = EXCLUDED.momentum_pct,
        rs_pct        = EXCLUDED.rs_pct,
@@ -301,6 +340,10 @@ async function persistOneRanking(r: WatchlistRanking): Promise<void> {
        company_name  = EXCLUDED.company_name,
        sector        = EXCLUDED.sector,
        price         = EXCLUDED.price,
+       pe_ratio      = EXCLUDED.pe_ratio,
+       week52_high   = EXCLUDED.week52_high,
+       week52_low    = EXCLUDED.week52_low,
+       bullish_pct   = EXCLUDED.bullish_pct,
        scanned_at    = EXCLUDED.scanned_at`,
     [
       r.ticker,
@@ -314,6 +357,10 @@ async function persistOneRanking(r: WatchlistRanking): Promise<void> {
       r.companyName,
       r.sector,
       r.price,
+      r.peRatio,
+      r.week52High,
+      r.week52Low,
+      r.bullishPct,
       r.scannedAt,
     ]
   );
@@ -325,7 +372,8 @@ async function readRankingsFromDb(): Promise<WatchlistRanking[] | null> {
     await ensureRankingsSchema();
     const rows = await query<RankingRow>(
       `SELECT ticker, momentum_pct, rs_pct, revision, composite, rsi14,
-              engine_score, engine_signal, company_name, sector, price, scanned_at
+              engine_score, engine_signal, company_name, sector, price,
+              pe_ratio, week52_high, week52_low, bullish_pct, scanned_at
        FROM watchlist_rankings ORDER BY composite DESC`
     );
     if (rows.length === 0) return null;
@@ -343,6 +391,10 @@ async function readRankingsFromDb(): Promise<WatchlistRanking[] | null> {
       companyName: row.company_name,
       sector: row.sector,
       price: row.price == null ? null : Number(row.price),
+      peRatio: row.pe_ratio == null ? null : Number(row.pe_ratio),
+      week52High: row.week52_high == null ? null : Number(row.week52_high),
+      week52Low: row.week52_low == null ? null : Number(row.week52_low),
+      bullishPct: row.bullish_pct == null ? null : Number(row.bullish_pct),
       scannedAt: new Date(row.scanned_at).toISOString(),
       rank: i + 1,
       universeSize,
@@ -427,6 +479,10 @@ export async function runWatchlistScan(): Promise<ScanResult> {
             companyName: stat.companyName,
             sector: stat.sector,
             price: stat.price,
+            peRatio: stat.peRatio,
+            week52High: stat.week52High,
+            week52Low: stat.week52Low,
+            bullishPct: stat.bullishPct,
             scannedAt,
             rank: 0,
             universeSize: 0,
@@ -474,6 +530,10 @@ export async function runWatchlistScan(): Promise<ScanResult> {
     companyName: s.companyName,
     sector: s.sector,
     price: s.price,
+    peRatio: s.peRatio,
+    week52High: s.week52High,
+    week52Low: s.week52Low,
+    bullishPct: s.bullishPct,
     scannedAt,
     rank: i + 1,
     universeSize: unranked.length,
