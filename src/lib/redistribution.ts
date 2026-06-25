@@ -220,7 +220,7 @@ export type NewPositionCandidate = {
 const MAX_NEW_POSITIONS = 8; // [deploy] open enough new names to put freed cash to work (0% buffer target); per-name 8% + sector caps still bound sizing
 const NEW_POSITION_MAX_WEIGHT = 0.15; // [conviction] let the conviction split (capped by the 30% single-name limit) govern per-name size
 const CONVICTION_WEIGHT_FLOOR = 74;
-const CONVICTION_GAP = 10; // [conviction-gap] only fund buys within this many points of the top score — don't dilute standouts with marginal qualifiers // [conviction] cash share per buy ∝ (score − this); steeper => stronger scores dominate (~2.5x at 89 vs 80)
+const CONVICTION_GAP = 9; // [conviction-gap] only fund buys within this many points of the top score — don't dilute standouts with marginal qualifiers // [conviction] cash share per buy ∝ (score − this); steeper => stronger scores dominate (~2.5x at 89 vs 80)
 
 export function buildRedistribution(
   portfolio: PortfolioResponse,
