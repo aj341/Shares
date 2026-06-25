@@ -36,6 +36,8 @@ import { ArticleAnalyzer } from "@/components/dashboard/article-analyzer";
 import { AlertsBanner } from "@/components/dashboard/alerts-banner";
 // [regime] additive market-regime / breadth context banner
 import { RegimeBanner } from "@/components/dashboard/regime-banner";
+// [riskgov] equity-curve risk monitor (alert-only)
+import { RiskGovernorCard } from "@/components/dashboard/risk-governor-card";
 // [herostrip] mobile "how am I doing today" glance bar (top of dashboard)
 import HeroStrip from "@/components/dashboard/hero-strip";
 import { SignalPerformance } from "@/components/dashboard/signal-performance";
@@ -530,6 +532,8 @@ function ReadyView({
           />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* [riskgov] monitor-only risk governor */}
+            <RiskGovernorCard />
             <PortfolioRisk />
             {/* [sizing] concentration / position-sizing widget */}
             <ConcentrationPanel />

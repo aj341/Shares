@@ -28,20 +28,30 @@ const SEVERITY_EMOJI: Record<PortfolioAlert["severity"], string> = {
   info: "🔵",
 };
 
-/** Re-send a persistent alert at most once per this window. */
-const DEDUPE_HOURS = 18;
+// [alerttier] Critical-vs-noise routing. CRITICAL alerts (risk breaker / vol,
+// hard catalysts on holdings, stop/target breaches, signal flips on holdings)
+// are ALWAYS delivered — the upstream computation is edge-triggered (only emits
+// on a real change), so this never spams. NORMAL alerts (rsi, near-cap,
+// watchlist entries, etc.) are throttled to one per ticker per cooldown window.
+const COOLDOWN_MINUTES = 60;
 
-/** State alerts dedupe by condition; event alerts dedupe by exact text. */
-function alertKey(a: PortfolioAlert): string {
-  const stateKinds = new Set([
-    "rsi_extreme",
-    "near_cap",
-    "watchlist_entry",
-    "earnings_imminent",
-  ]);
-  return stateKinds.has(a.kind)
-    ? `${a.kind}:${a.ticker}`
-    : `${a.kind}:${a.ticker}:${a.message}`;
+function alertTier(a: PortfolioAlert): "critical" | "normal" {
+  if (a.severity === "critical") return "critical";
+  if (
+    a.kind === "signal_change" ||
+    a.kind === "high_impact_news" ||
+    a.kind === "earnings_imminent"
+  )
+    return "critical";
+  return "normal";
+}
+
+// Critical: keyed by the exact event so every distinct critical passes.
+// Normal: keyed by ticker so a noisy name collapses to one alert per window.
+function cooldownKey(a: PortfolioAlert): string {
+  return alertTier(a) === "critical"
+    ? `crit:${a.kind}:${a.ticker}:${a.message}`
+    : `norm:${a.ticker}`;
 }
 
 function escapeHtml(s: string): string {
@@ -73,34 +83,41 @@ function ensureSchema(): Promise<void> {
 
 const memorySent = new Map<string, number>(); // key -> epoch ms (fallback)
 
-/** Keep only alerts not already sent within the dedupe window. */
+/** [alerttier] Critical always passes; normal throttled by a per-ticker cooldown. */
 async function filterUnsent(alerts: PortfolioAlert[]): Promise<PortfolioAlert[]> {
   if (alerts.length === 0) return [];
-  const keyed = alerts.map((a) => ({ a, key: alertKey(a) }));
+  const critical = alerts.filter((a) => alertTier(a) === "critical");
+  const normal = alerts.filter((a) => alertTier(a) === "normal");
+  if (normal.length === 0) return critical;
+
+  const keyed = normal.map((a) => ({ a, key: cooldownKey(a) }));
 
   if (!isDatabaseConfigured()) {
-    const now = Date.now();
-    const cutoff = now - DEDUPE_HOURS * 3_600_000;
-    return keyed
+    const cutoff = Date.now() - COOLDOWN_MINUTES * 60_000;
+    const fresh = keyed
       .filter(({ key }) => {
         const last = memorySent.get(key);
         return last == null || last < cutoff;
       })
       .map(({ a }) => a);
+    return [...critical, ...fresh];
   }
 
   await ensureSchema();
   const rows = await query<{ alert_key: string }>(
     `SELECT alert_key FROM telegram_sent_alerts
-      WHERE sent_at > NOW() - INTERVAL '${DEDUPE_HOURS} hours'`
+      WHERE sent_at > NOW() - INTERVAL '${COOLDOWN_MINUTES} minutes'`
   );
   const recent = new Set(rows.map((r) => r.alert_key));
-  return keyed.filter(({ key }) => !recent.has(key)).map(({ a }) => a);
+  const fresh = keyed.filter(({ key }) => !recent.has(key)).map(({ a }) => a);
+  return [...critical, ...fresh];
 }
 
 /** Record alerts as sent (upsert sent_at = now). */
 async function recordSent(alerts: PortfolioAlert[]): Promise<void> {
-  const keys = alerts.map(alertKey);
+  // Only NORMAL alerts need cooldown tracking — criticals always pass.
+  const keys = alerts.filter((a) => alertTier(a) === "normal").map(cooldownKey);
+  if (keys.length === 0) return;
   if (!isDatabaseConfigured()) {
     const now = Date.now();
     for (const k of keys) memorySent.set(k, now);
