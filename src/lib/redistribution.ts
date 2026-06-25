@@ -599,11 +599,20 @@ export function buildRedistribution(
   const top3WouldHold = (ticker: string, cost: number): boolean => {
     if (!concentrationOn) return true;
     if (totalPortfolioValue <= 0) return true;
+    const beforeVals = Array.from(mvAfter.values()).sort((a, b) => b - a);
+    const top3Before = beforeVals.slice(0, 3).reduce((acc, v) => acc + v, 0);
     const proj = new Map(mvAfter);
     proj.set(ticker, (proj.get(ticker) ?? 0) + cost);
     const vals = Array.from(proj.values()).sort((a, b) => b - a);
-    const top3 = vals.slice(0, 3).reduce((acc, v) => acc + v, 0);
-    return top3 / totalPortfolioValue <= concLimits.maxTop3 + 1e-9;
+    const top3After = vals.slice(0, 3).reduce((acc, v) => acc + v, 0);
+    // [divfix] Allow a buy that keeps top-3 within the cap OR does not WORSEN an
+    // existing breach. Opening a diversifying 4th+ name leaves the top-3 the same,
+    // so it must not be blocked just because the incumbent top-3 is already over
+    // the limit — otherwise the guard forbids the very diversification we want.
+    return (
+      top3After / totalPortfolioValue <= concLimits.maxTop3 + 1e-9 ||
+      top3After <= top3Before + 1e-9
+    );
   };
 
   let totalInvested = 0;
