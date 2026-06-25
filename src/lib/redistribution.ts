@@ -219,7 +219,8 @@ export type NewPositionCandidate = {
 
 const MAX_NEW_POSITIONS = 8; // [deploy] open enough new names to put freed cash to work (0% buffer target); per-name 8% + sector caps still bound sizing
 const NEW_POSITION_MAX_WEIGHT = 0.15; // [conviction] let the conviction split (capped by the 30% single-name limit) govern per-name size
-const CONVICTION_WEIGHT_FLOOR = 74; // [conviction] cash share per buy ∝ (score − this); steeper => stronger scores dominate (~2.5x at 89 vs 80)
+const CONVICTION_WEIGHT_FLOOR = 74;
+const CONVICTION_GAP = 10; // [conviction-gap] only fund buys within this many points of the top score — don't dilute standouts with marginal qualifiers // [conviction] cash share per buy ∝ (score − this); steeper => stronger scores dominate (~2.5x at 89 vs 80)
 
 export function buildRedistribution(
   portfolio: PortfolioResponse,
@@ -497,6 +498,16 @@ export function buildRedistribution(
     : [];
 
   const newEntryCands = [...normalCands, ...diversifierCands];
+  // [conviction-gap] When there's a clear standout, fund only names within
+  // CONVICTION_GAP of the best — a 77 shouldn't take cash from an 89/88. When
+  // scores are flat (all near the top), nothing is excluded.
+  const topCandScore = newEntryCands.reduce(
+    (m, c) => Math.max(m, (c.score as number) ?? 0),
+    0
+  );
+  const gatedCands = newEntryCands.filter(
+    (c) => (c.score as number) >= topCandScore - CONVICTION_GAP
+  );
 
   // [divdeploy] Deployment-ordering score: the qualifying engine score plus a
   // fresh-sector bonus, so a diversifying name is preferred over one rebuilding
@@ -534,7 +545,7 @@ export function buildRedistribution(
       holding: h,
       score: h.score,
     })),
-    ...newEntryCands.map((c) => ({
+    ...gatedCands.map((c) => ({
       kind: "new" as const,
       cand: c,
       score: c.score as number,
