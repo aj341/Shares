@@ -30,10 +30,18 @@ const SEVERITY_EMOJI: Record<PortfolioAlert["severity"], string> = {
 
 // [alerttier] Critical-vs-noise routing. CRITICAL alerts (risk breaker / vol,
 // hard catalysts on holdings, stop/target breaches, signal flips on holdings)
-// are ALWAYS delivered — the upstream computation is edge-triggered (only emits
-// on a real change), so this never spams. NORMAL alerts (rsi, near-cap,
-// watchlist entries, etc.) are throttled to one per ticker per cooldown window.
-const COOLDOWN_MINUTES = 60;
+// are keyed by their EXACT event (kind+ticker+message) so a genuinely new event
+// passes immediately, but the SAME critical is not re-sent every cron tick.
+// NORMAL alerts (rsi, near-cap, watchlist entries, etc.) collapse to one per
+// ticker per window. [dedupefix] Previously criticals bypassed the store
+// entirely, so repeating news headlines spammed every 15 min.
+const NORMAL_COOLDOWN_MINUTES = 60;
+const CRITICAL_COOLDOWN_MINUTES = 360;
+function cooldownMinutesFor(a: PortfolioAlert): number {
+  return alertTier(a) === "critical"
+    ? CRITICAL_COOLDOWN_MINUTES
+    : NORMAL_COOLDOWN_MINUTES;
+}
 
 function alertTier(a: PortfolioAlert): "critical" | "normal" {
   if (a.severity === "critical") return "critical";
@@ -83,40 +91,50 @@ function ensureSchema(): Promise<void> {
 
 const memorySent = new Map<string, number>(); // key -> epoch ms (fallback)
 
-/** [alerttier] Critical always passes; normal throttled by a per-ticker cooldown. */
+/**
+ * [dedupefix] Throttle EVERY alert by its cooldown key. Criticals are keyed by
+ * exact event (kind+ticker+message) with a long window, so a genuinely new
+ * event still passes immediately while an unchanged critical stops re-sending
+ * every cron tick. Normals collapse per-ticker on a short window.
+ */
 async function filterUnsent(alerts: PortfolioAlert[]): Promise<PortfolioAlert[]> {
   if (alerts.length === 0) return [];
-  const critical = alerts.filter((a) => alertTier(a) === "critical");
-  const normal = alerts.filter((a) => alertTier(a) === "normal");
-  if (normal.length === 0) return critical;
-
-  const keyed = normal.map((a) => ({ a, key: cooldownKey(a) }));
+  const now = Date.now();
+  const keyed = alerts.map((a) => ({
+    a,
+    key: cooldownKey(a),
+    windowMs: cooldownMinutesFor(a) * 60_000,
+  }));
 
   if (!isDatabaseConfigured()) {
-    const cutoff = Date.now() - COOLDOWN_MINUTES * 60_000;
-    const fresh = keyed
-      .filter(({ key }) => {
+    return keyed
+      .filter(({ key, windowMs }) => {
         const last = memorySent.get(key);
-        return last == null || last < cutoff;
+        return last == null || last < now - windowMs;
       })
       .map(({ a }) => a);
-    return [...critical, ...fresh];
   }
 
   await ensureSchema();
-  const rows = await query<{ alert_key: string }>(
-    `SELECT alert_key FROM telegram_sent_alerts
-      WHERE sent_at > NOW() - INTERVAL '${COOLDOWN_MINUTES} minutes'`
+  const maxWindow = Math.max(NORMAL_COOLDOWN_MINUTES, CRITICAL_COOLDOWN_MINUTES);
+  const rows = await query<{ alert_key: string; sent_at: string | Date }>(
+    `SELECT alert_key, sent_at FROM telegram_sent_alerts
+      WHERE sent_at > NOW() - INTERVAL '${maxWindow} minutes'`
   );
-  const recent = new Set(rows.map((r) => r.alert_key));
-  const fresh = keyed.filter(({ key }) => !recent.has(key)).map(({ a }) => a);
-  return [...critical, ...fresh];
+  const lastByKey = new Map(
+    rows.map((r) => [r.alert_key, new Date(r.sent_at).getTime()])
+  );
+  return keyed
+    .filter(({ key, windowMs }) => {
+      const last = lastByKey.get(key);
+      return last == null || last < now - windowMs;
+    })
+    .map(({ a }) => a);
 }
 
-/** Record alerts as sent (upsert sent_at = now). */
+/** Record alerts as sent (upsert sent_at = now). [dedupefix] Track ALL tiers. */
 async function recordSent(alerts: PortfolioAlert[]): Promise<void> {
-  // Only NORMAL alerts need cooldown tracking — criticals always pass.
-  const keys = alerts.filter((a) => alertTier(a) === "normal").map(cooldownKey);
+  const keys = alerts.map(cooldownKey);
   if (keys.length === 0) return;
   if (!isDatabaseConfigured()) {
     const now = Date.now();
