@@ -213,8 +213,33 @@ export async function getIntradaySeries(symbol: string): Promise<IntradaySeries>
 
   // prevClose: prefer Finnhub's (authoritative).
   const prevClose = num(quote?.pc);
+  const finnhubLast = num(quote?.c);
+  const finalBarPrice = points[points.length - 1].price;
   // last: prefer the live quote; else the final plotted bar.
-  const last = num(quote?.c) ?? points[points.length - 1].price;
+  const last = finnhubLast ?? finalBarPrice;
+
+  // [chartfix] Staleness guard. The SHAPE comes from Mboum 5m bars, which can
+  // go stale (an old session surfaced as "latest") and disagree with Finnhub's
+  // live last — the cause of the 1D chart drawing a wrong downtrend that ends
+  // at a stale price (e.g. NBIS line ~$258 while the true last was ~$276). If
+  // the final plotted bar diverges materially from Finnhub's live last, treat
+  // the intraday series as unreliable and return a quote-only summary: the
+  // header still shows the correct price and the UI renders its empty-line
+  // state, instead of a misleading trend.
+  const INTRADAY_MAX_DIVERGENCE = 0.04;
+  if (
+    finnhubLast != null &&
+    Math.abs(finalBarPrice - finnhubLast) / finnhubLast > INTRADAY_MAX_DIVERGENCE
+  ) {
+    const chg = prevClose != null ? finnhubLast - prevClose : null;
+    return {
+      ...empty(sym),
+      prevClose,
+      last: finnhubLast,
+      change: chg,
+      changePct: chg != null && prevClose ? (chg / prevClose) * 100 : null,
+    };
+  }
 
   const change = last != null && prevClose != null ? last - prevClose : null;
   const changePct =
