@@ -71,32 +71,45 @@ async function getQuoteFor(
   clockSession: ReturnType<typeof getMarketSession> = getMarketSession()
 ): Promise<Quote> {
   if (source === "finnhub") {
-    // [exthours] Regular session CLOSED: try a real pre/post-market print first.
-    // If found, it becomes the live price (with a session label + extended
-    // day-change). If not, we fall straight through to the existing behavior
-    // (Finnhub quote / Mboum last close) - so nothing is ever fabricated.
+    // [pricefix] Finnhub is the configured source of truth. Fetch it FIRST so a
+    // stale Mboum extended-hours print can never silently override a fresh
+    // Finnhub price (root cause of NBIS showing ~$260 post-market vs Finnhub's
+    // ~$276). We still surface a real pre/post print, but only when it
+    // corroborates Finnhub within EXT_MAX_DIVERGENCE.
+    const EXT_MAX_DIVERGENCE = 0.04; // 4%: NBIS stale gap was ~5.9% → rejected.
+    const q = await finnhub.getQuote(ticker);
+    const finnhubPrice = q && q.c > 0 ? q.c : null;
+
+    // [exthours] Regular session CLOSED: try a real pre/post-market print. If
+    // found AND it corroborates Finnhub, it becomes the live price. If it
+    // diverges (stale/anomalous), we discard it and fall through to Finnhub.
     if (clockSession !== "regular") {
       const ext = await getExtendedHoursQuote(ticker, clockSession).catch(() => null);
       if (ext) {
-        return {
-          currentPrice: ext.price,
-          dayChangePct: ext.changePct ?? 0,
-          real: true,
-          session: ext.session,
-          extendedHours: {
-            price: ext.price,
-            changePct: ext.changePct,
+        const corroborated =
+          finnhubPrice == null ||
+          Math.abs(ext.price - finnhubPrice) / finnhubPrice <= EXT_MAX_DIVERGENCE;
+        if (corroborated) {
+          return {
+            currentPrice: ext.price,
+            dayChangePct: ext.changePct ?? 0,
+            real: true,
             session: ext.session,
-          },
-        };
+            extendedHours: {
+              price: ext.price,
+              changePct: ext.changePct,
+              session: ext.session,
+            },
+          };
+        }
+        // [pricefix] Divergent extended print — treat as stale, use Finnhub.
       }
     }
-    const q = await finnhub.getQuote(ticker);
-    if (q && q.c > 0) {
+    if (finnhubPrice != null) {
       // [exthours] Regular Finnhub quote is UNCHANGED; we only annotate the
       // session so the UI can label pre/post/closed states where no live
       // extended print was available (no extendedHours attached here).
-      return { currentPrice: q.c, dayChangePct: q.dp ?? 0, real: true, session: clockSession };
+      return { currentPrice: finnhubPrice, dayChangePct: q?.dp ?? 0, real: true, session: clockSession };
     }
     // Finnhub failed: prefer a REAL (slightly stale) Mboum close over mock.
     if (isMboumConfigured()) {
